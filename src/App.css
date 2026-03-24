@@ -1,0 +1,104 @@
+.dashboard-shell {
+  align-items: center;
+  display: grid;
+  justify-items: center;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.app-stack {
+  display: grid;
+  gap: 1.5rem;
+  justify-items: center;
+  width: min(100%, 980px);
+}
+
+.button-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  justify-content: center;
+}
+
+.minimal-button {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  box-shadow: 0 18px 48px rgba(4, 10, 20, 0.2);
+  color: #0d1a2a;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.8rem 1.2rem;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    opacity 180ms ease;
+}
+
+.minimal-button:hover:not(:disabled) {
+  box-shadow: 0 22px 54px rgba(4, 10, 20, 0.28);
+  transform: translateY(-1px);
+}
+
+.minimal-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.discord-button {
+  background: rgba(88, 101, 242, 0.16);
+  border-color: rgba(88, 101, 242, 0.3);
+  color: #e9edff;
+}
+
+.telegram-button {
+  background: rgba(36, 162, 227, 0.16);
+  border-color: rgba(36, 162, 227, 0.3);
+  color: #e8f8ff;
+}
+
+.stats-table-shell {
+  background: rgba(8, 14, 24, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+  box-shadow: 0 18px 48px rgba(4, 10, 20, 0.2);
+  overflow-x: auto;
+  padding: 0.75rem;
+  width: min(100%, 860px);
+}
+
+.stats-table {
+  border-collapse: collapse;
+  color: #eef4ff;
+  min-width: 100%;
+}
+
+.stats-table th,
+.stats-table td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.75rem 0.9rem;
+  text-align: left;
+}
+
+.stats-table th {
+  color: rgba(238, 244, 255, 0.78);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.stats-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.stats-table td {
+  font-family: 'SFMono-Regular', 'SF Mono', 'Roboto Mono', monospace;
+  font-size: 0.92rem;
+}
