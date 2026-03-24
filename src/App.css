@@ -14,6 +14,30 @@
   width: min(100%, 980px);
 }
 
+.status-shell {
+  background: rgba(8, 14, 24, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+  box-shadow: 0 18px 48px rgba(4, 10, 20, 0.2);
+  display: grid;
+  gap: 0.4rem;
+  padding: 1rem 1.15rem;
+  width: min(100%, 860px);
+}
+
+.status-line {
+  color: #eef4ff;
+  margin: 0;
+}
+
+.status-error {
+  color: #ffb6ab;
+}
+
+.status-note {
+  color: #a6f3e8;
+}
+
 .button-stack {
   display: flex;
   flex-wrap: wrap;
@@ -63,6 +87,22 @@
   border-color: rgba(36, 162, 227, 0.3);
   color: #e8f8ff;
 }
+
+.wallet-auth-button {
+  background: rgba(255, 154, 66, 0.16);
+  border-color: rgba(255, 154, 66, 0.32);
+  color: #fff2d8;
+}
+
+.inline-link-button {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  margin-left: 0.5rem;
+  padding: 0;
+  text-decoration: underline;
+ }
 
 .stats-table-shell {
   background: rgba(8, 14, 24, 0.72);

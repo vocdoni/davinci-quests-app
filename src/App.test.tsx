@@ -3,43 +3,22 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type { AppConfig } from './config'
-import { useDiscordConnection } from './hooks/useDiscordConnection'
-import { useTelegramConnection } from './hooks/useTelegramConnection'
-import { useUserStats } from './hooks/useUserStats'
+import { useAppSession } from './hooks/useAppSession'
 import { useWalletConnection } from './hooks/useWalletConnection'
 
 vi.mock('./hooks/useWalletConnection', () => ({
   useWalletConnection: vi.fn(),
 }))
 
-vi.mock('./hooks/useUserStats', () => ({
-  useUserStats: vi.fn(),
-}))
-
-vi.mock('./hooks/useDiscordConnection', () => ({
-  useDiscordConnection: vi.fn(),
-}))
-
-vi.mock('./hooks/useTelegramConnection', () => ({
-  useTelegramConnection: vi.fn(),
+vi.mock('./hooks/useAppSession', () => ({
+  useAppSession: vi.fn(),
 }))
 
 const mockedUseWalletConnection = vi.mocked(useWalletConnection)
-const mockedUseUserStats = vi.mocked(useUserStats)
-const mockedUseDiscordConnection = vi.mocked(useDiscordConnection)
-const mockedUseTelegramConnection = vi.mocked(useTelegramConnection)
+const mockedUseAppSession = vi.mocked(useAppSession)
 
 const baseConfig: AppConfig = {
-  contractAddress: '0x0000000000000000000000000000000000000001',
-  discord: {
-    clientId: '123456789012345678',
-    guildId: '987654321098765432',
-    redirectUri: 'https://app.example.org',
-  },
-  startBlock: 12345n,
-  telegram: {
-    apiBaseUrl: 'https://api.example.org',
-  },
+  apiBaseUrl: 'https://api.example.org',
   targetChain: {
     blockExplorerUrl: 'https://explorer.example.org',
     id: 137,
@@ -67,65 +46,44 @@ function createWalletConnection(overrides: Record<string, unknown> = {}) {
     disconnectWallet: vi.fn(),
     isConnected: false,
     isConnecting: false,
+    isSigning: false,
     isSwitching: false,
     isWrongNetwork: false,
     primaryConnectorName: 'WalletConnect',
     requestSwitch: vi.fn(),
+    signError: null,
+    signMessage: vi.fn(async () => '0xsigned'),
     switchError: null,
-    targetChain: {} as never,
+    targetChain: {
+      name: 'Polygon',
+    },
     ...overrides,
   } as never
 }
 
-function createWalletStats(overrides: Record<string, unknown> = {}) {
+function createSession(overrides: Record<string, unknown> = {}) {
   return {
-    data: undefined,
-    error: null,
-    isError: false,
-    isLoading: false,
-    isSuccess: false,
-    refetch: vi.fn(),
-    ...overrides,
-  } as never
-}
-
-function createDiscordConnection(overrides: Record<string, unknown> = {}) {
-  return {
-    displayName: null,
+    clearLinkFeedback: vi.fn(),
     error: null,
     isAuthenticated: false,
-    isInTargetServer: null,
     isLoading: false,
     isReady: true,
-    login: vi.fn(),
-    logout: vi.fn(),
-    userId: null,
-    username: null,
-    ...overrides,
-  } as never
-}
-
-function createTelegramConnection(overrides: Record<string, unknown> = {}) {
-  return {
-    displayName: null,
-    error: null,
-    isAuthenticated: false,
-    isInTargetChannel: null,
-    isLoading: false,
-    isReady: true,
-    login: vi.fn(),
-    logout: vi.fn(),
-    userId: null,
-    username: null,
+    linkFeedback: null,
+    logout: vi.fn(async () => undefined),
+    profile: null,
+    refetchProfile: vi.fn(),
+    requestWalletChallenge: vi.fn(async () => ({ message: 'Sign this challenge' })),
+    sessionWalletAddress: null,
+    startProviderConnection: vi.fn(),
+    unlinkProvider: vi.fn(async () => undefined),
+    verifyWallet: vi.fn(async () => undefined),
     ...overrides,
   } as never
 }
 
 beforeEach(() => {
   mockedUseWalletConnection.mockReset()
-  mockedUseUserStats.mockReset()
-  mockedUseDiscordConnection.mockReset()
-  mockedUseTelegramConnection.mockReset()
+  mockedUseAppSession.mockReset()
 })
 
 afterEach(() => {
@@ -134,111 +92,62 @@ afterEach(() => {
 })
 
 describe('App', () => {
-  it('renders wallet, Discord, and Telegram buttons and triggers all login actions', async () => {
+  it('connects the wallet when no wallet is connected', async () => {
     const user = userEvent.setup()
     const connectPrimaryWallet = vi.fn()
-    const loginDiscord = vi.fn()
-    const loginTelegram = vi.fn()
 
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({ connectPrimaryWallet }),
     )
-    mockedUseUserStats.mockReturnValue(createWalletStats())
-    mockedUseDiscordConnection.mockReturnValue(
-      createDiscordConnection({ login: loginDiscord }),
-    )
-    mockedUseTelegramConnection.mockReturnValue(
-      createTelegramConnection({ login: loginTelegram }),
-    )
+    mockedUseAppSession.mockReturnValue(createSession())
 
     render(<App config={baseConfig} />)
 
     await user.click(screen.getByRole('button', { name: 'Connect wallet' }))
-    await user.click(screen.getByRole('button', { name: 'Login with Discord' }))
-    await user.click(screen.getByRole('button', { name: 'Login with Telegram' }))
 
     expect(connectPrimaryWallet).toHaveBeenCalledTimes(1)
-    expect(loginDiscord).toHaveBeenCalledTimes(1)
-    expect(loginTelegram).toHaveBeenCalledTimes(1)
   })
 
-  it('logs merged user stats once wallet, Discord, and Telegram data are ready', async () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  it('signs in with the connected wallet before loading provider actions', async () => {
+    const user = userEvent.setup()
+    const signMessage = vi.fn(async () => '0xsigned')
+    const requestWalletChallenge = vi.fn(async () => ({
+      message: 'Sign this challenge',
+    }))
+    const verifyWallet = vi.fn(async () => undefined)
 
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({
         address: '0x123400000000000000000000000000000000abcd',
         connectors: [],
         isConnected: true,
+        signMessage,
       }),
     )
-    mockedUseUserStats.mockReturnValue(
-      createWalletStats({
-        data: {
-          createdProcesses: [],
-          createdProcessesCount: 2,
-          totalVotersAcrossCreatedProcesses: 33n,
-        },
-        isSuccess: true,
-      }),
-    )
-    mockedUseDiscordConnection.mockReturnValue(
-      createDiscordConnection({
-        displayName: 'Quest Master',
-        isAuthenticated: true,
-        isInTargetServer: true,
-        userId: '111111111111111111',
-        username: 'questmaster',
-      }),
-    )
-    mockedUseTelegramConnection.mockReturnValue(
-      createTelegramConnection({
-        displayName: 'Quest Captain',
-        isAuthenticated: true,
-        isInTargetChannel: true,
-        userId: '222222222',
-        username: 'questcaptain',
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        requestWalletChallenge,
+        verifyWallet,
       }),
     )
 
     render(<App config={baseConfig} />)
+
+    await user.click(screen.getByRole('button', { name: 'Sign in with wallet' }))
 
     await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith('User stats', {
-        discord: {
-          isAuthenticated: true,
-          isInTargetServer: true,
-          userId: '111111111111111111',
-          username: 'Quest Master',
-        },
-        onchain: {
-          address: '0x123400000000000000000000000000000000abcd',
-          numberOfProcesses: 2,
-          totalVotes: '33',
-        },
-        telegram: {
-          displayName: 'Quest Captain',
-          isAuthenticated: true,
-          isInTargetChannel: true,
-          userId: '222222222',
-          username: 'questcaptain',
-        },
-      })
+      expect(requestWalletChallenge).toHaveBeenCalledWith(
+        '0x123400000000000000000000000000000000abcd',
+      )
+      expect(signMessage).toHaveBeenCalledWith('Sign this challenge')
+      expect(verifyWallet).toHaveBeenCalledWith(
+        '0x123400000000000000000000000000000000abcd',
+        '0xsigned',
+      )
     })
-
-    const table = screen.getByRole('table')
-
-    expect(table).toBeVisible()
-    expect(screen.getAllByText('discord')).toHaveLength(4)
-    expect(screen.getByText('isInTargetServer')).toBeVisible()
-    expect(screen.getByText('Quest Master')).toBeVisible()
-    expect(screen.getByText('Quest Captain')).toBeVisible()
-    expect(screen.getByText('33')).toBeVisible()
   })
 
-  it('logs wallet stats with logged-out social providers when neither provider is connected', async () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
+  it('keeps provider buttons disabled until the wallet session is authenticated', () => {
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({
         address: '0x123400000000000000000000000000000000abcd',
@@ -246,109 +155,19 @@ describe('App', () => {
         isConnected: true,
       }),
     )
-    mockedUseUserStats.mockReturnValue(
-      createWalletStats({
-        data: {
-          createdProcesses: [],
-          createdProcessesCount: 1,
-          totalVotersAcrossCreatedProcesses: 7n,
-        },
-        isSuccess: true,
-      }),
-    )
-    mockedUseDiscordConnection.mockReturnValue(createDiscordConnection())
-    mockedUseTelegramConnection.mockReturnValue(createTelegramConnection())
+    mockedUseAppSession.mockReturnValue(createSession())
 
     render(<App config={baseConfig} />)
 
-    await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith('User stats', {
-        discord: {
-          isAuthenticated: false,
-          isInTargetServer: null,
-          userId: null,
-          username: null,
-        },
-        onchain: {
-          address: '0x123400000000000000000000000000000000abcd',
-          numberOfProcesses: 1,
-          totalVotes: '7',
-        },
-        telegram: {
-          displayName: null,
-          isAuthenticated: false,
-          isInTargetChannel: null,
-          userId: null,
-          username: null,
-        },
-      })
-    })
+    expect(screen.getByRole('button', { name: 'Connect Discord' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Connect Telegram' })).toBeDisabled()
   })
 
-  it('does not log while Telegram is still unresolved', () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
-    mockedUseWalletConnection.mockReturnValue(
-      createWalletConnection({
-        address: '0x123400000000000000000000000000000000abcd',
-        connectors: [],
-        isConnected: true,
-      }),
-    )
-    mockedUseUserStats.mockReturnValue(
-      createWalletStats({
-        data: {
-          createdProcesses: [],
-          createdProcessesCount: 1,
-          totalVotersAcrossCreatedProcesses: 7n,
-        },
-        isSuccess: true,
-      }),
-    )
-    mockedUseDiscordConnection.mockReturnValue(createDiscordConnection())
-    mockedUseTelegramConnection.mockReturnValue(
-      createTelegramConnection({
-        isLoading: true,
-        isReady: false,
-      }),
-    )
-
-    render(<App config={baseConfig} />)
-
-    expect(consoleSpy).not.toHaveBeenCalled()
-  })
-
-  it('auto-requests a network switch and disables wallet stats on the wrong network', () => {
-    const requestSwitch = vi.fn()
-
-    mockedUseWalletConnection.mockReturnValue(
-      createWalletConnection({
-        address: '0x123400000000000000000000000000000000abcd',
-        chainId: 1,
-        connectors: [],
-        isConnected: true,
-        isWrongNetwork: true,
-        requestSwitch,
-      }),
-    )
-    mockedUseUserStats.mockReturnValue(createWalletStats())
-    mockedUseDiscordConnection.mockReturnValue(createDiscordConnection())
-    mockedUseTelegramConnection.mockReturnValue(createTelegramConnection())
-
-    render(<App config={baseConfig} />)
-
-    expect(requestSwitch).toHaveBeenCalledTimes(1)
-    expect(mockedUseUserStats).toHaveBeenCalledWith({
-      address: '0x123400000000000000000000000000000000abcd',
-      enabled: false,
-    })
-  })
-
-  it('shows disconnect actions for wallet, Discord, and Telegram once connected', async () => {
+  it('unlinks connected providers and signs the user out from the wallet session', async () => {
     const user = userEvent.setup()
     const disconnectWallet = vi.fn()
-    const logoutDiscord = vi.fn()
-    const logoutTelegram = vi.fn()
+    const logout = vi.fn(async () => undefined)
+    const unlinkProvider = vi.fn(async () => undefined)
 
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({
@@ -358,67 +177,171 @@ describe('App', () => {
         isConnected: true,
       }),
     )
-    mockedUseUserStats.mockReturnValue(
-      createWalletStats({
-        data: {
-          createdProcesses: [],
-          createdProcessesCount: 0,
-          totalVotersAcrossCreatedProcesses: 0n,
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        logout,
+        profile: {
+          identities: {
+            discord: {
+              checkedAt: null,
+              connected: true,
+              displayName: 'Quest Master',
+              error: null,
+              expiresAt: null,
+              stats: {
+                isInTargetServer: true,
+              },
+              status: 'active',
+              userId: '111111111111111111',
+              username: 'questmaster',
+            },
+            telegram: {
+              checkedAt: null,
+              connected: true,
+              displayName: 'Quest Captain',
+              error: null,
+              expiresAt: null,
+              stats: {
+                isInTargetChannel: true,
+              },
+              status: 'active',
+              userId: '222222222',
+              username: 'questcaptain',
+            },
+          },
+          onchain: {
+            checkedAt: null,
+            error: null,
+            expiresAt: null,
+            numberOfProcesses: 0,
+            totalVotes: '0',
+          },
+          wallet: {
+            address: '0x123400000000000000000000000000000000abcd',
+          },
         },
-        isSuccess: true,
-      }),
-    )
-    mockedUseDiscordConnection.mockReturnValue(
-      createDiscordConnection({
-        isAuthenticated: true,
-        logout: logoutDiscord,
-        userId: '111111111111111111',
-        username: 'questmaster',
-      }),
-    )
-    mockedUseTelegramConnection.mockReturnValue(
-      createTelegramConnection({
-        isAuthenticated: true,
-        logout: logoutTelegram,
-        userId: '222222222',
-        username: 'questcaptain',
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+        unlinkProvider,
       }),
     )
 
     render(<App config={baseConfig} />)
+
+    await user.click(screen.getByRole('button', { name: 'Disconnect Discord' }))
+    await waitFor(() => {
+      expect(unlinkProvider).toHaveBeenCalledWith('discord')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Disconnect Telegram' }))
+    await waitFor(() => {
+      expect(unlinkProvider).toHaveBeenCalledWith('telegram')
+    })
 
     await user.click(screen.getByRole('button', { name: 'Disconnect wallet' }))
-    await user.click(screen.getByRole('button', { name: 'Disconnect Discord' }))
-    await user.click(screen.getByRole('button', { name: 'Disconnect Telegram' }))
 
-    expect(disconnectWallet).toHaveBeenCalledTimes(1)
-    expect(logoutDiscord).toHaveBeenCalledTimes(1)
-    expect(logoutTelegram).toHaveBeenCalledTimes(1)
+    await waitFor(() => {
+      expect(logout).toHaveBeenCalledTimes(1)
+      expect(disconnectWallet).toHaveBeenCalledTimes(1)
+    })
   })
 
-  it('shows loading labels while wallet, Discord, or Telegram are busy', () => {
+  it('renders merged profile and onchain stats once the session is authenticated', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({
-        connectors: [{ id: 'walletConnect', name: 'WalletConnect' }],
-        isConnecting: true,
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
       }),
     )
-    mockedUseUserStats.mockReturnValue(createWalletStats())
-    mockedUseDiscordConnection.mockReturnValue(
-      createDiscordConnection({
-        isLoading: true,
-      }),
-    )
-    mockedUseTelegramConnection.mockReturnValue(
-      createTelegramConnection({
-        isLoading: true,
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: {
+          identities: {
+            discord: {
+              checkedAt: '2026-03-24T12:00:00.000Z',
+              connected: true,
+              displayName: 'Quest Master',
+              error: null,
+              expiresAt: '2026-03-25T00:00:00.000Z',
+              stats: {
+                isInTargetServer: true,
+              },
+              status: 'active',
+              userId: '111111111111111111',
+              username: 'questmaster',
+            },
+            telegram: {
+              checkedAt: '2026-03-24T12:00:00.000Z',
+              connected: true,
+              displayName: 'Quest Captain',
+              error: null,
+              expiresAt: '2026-03-25T00:00:00.000Z',
+              stats: {
+                isInTargetChannel: true,
+              },
+              status: 'active',
+              userId: '222222222',
+              username: 'questcaptain',
+            },
+          },
+          onchain: {
+            checkedAt: '2026-03-24T12:05:00.000Z',
+            error: null,
+            expiresAt: '2026-03-24T12:10:00.000Z',
+            numberOfProcesses: 2,
+            totalVotes: '33',
+          },
+          wallet: {
+            address: '0x123400000000000000000000000000000000abcd',
+          },
+        },
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
       }),
     )
 
     render(<App config={baseConfig} />)
 
-    expect(screen.getByRole('button', { name: 'Connecting wallet...' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Connecting Discord...' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Connecting Telegram...' })).toBeVisible()
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('User stats', {
+        discord: {
+          checkedAt: '2026-03-24T12:00:00.000Z',
+          error: null,
+          expiresAt: '2026-03-25T00:00:00.000Z',
+          isConnected: true,
+          isInTargetServer: true,
+          status: 'active',
+          userId: '111111111111111111',
+          username: 'Quest Master',
+        },
+        onchain: {
+          address: '0x123400000000000000000000000000000000abcd',
+          checkedAt: '2026-03-24T12:05:00.000Z',
+          error: null,
+          expiresAt: '2026-03-24T12:10:00.000Z',
+          numberOfProcesses: 2,
+          totalVotes: '33',
+        },
+        telegram: {
+          checkedAt: '2026-03-24T12:00:00.000Z',
+          displayName: 'Quest Captain',
+          error: null,
+          expiresAt: '2026-03-25T00:00:00.000Z',
+          isConnected: true,
+          isInTargetChannel: true,
+          status: 'active',
+          userId: '222222222',
+          username: 'questcaptain',
+        },
+      })
+    })
+
+    expect(screen.getByRole('table')).toBeVisible()
+    expect(screen.getByText('Quest Master')).toBeVisible()
+    expect(screen.getByText('Quest Captain')).toBeVisible()
+    expect(screen.getByText('33')).toBeVisible()
   })
 })

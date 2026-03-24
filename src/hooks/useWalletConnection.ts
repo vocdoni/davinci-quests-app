@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Connector } from '@wagmi/core'
-import { useAccount, useConnect, useDisconnect } from 'wagmi'
+import { useAccount, useConnect, useDisconnect, useSignMessage } from 'wagmi'
 import { numberToHex } from 'viem'
 import type { AppConfig } from '../config'
 import { createTargetChain } from '../lib/wallet'
@@ -70,6 +70,11 @@ export function useWalletConnection(config: AppConfig) {
   const { connectAsync, connectors, error: connectError, isPending: isConnecting } =
     useConnect()
   const { disconnect } = useDisconnect()
+  const {
+    error: signError,
+    isPending: isSigning,
+    signMessageAsync,
+  } = useSignMessage()
   const [connectRequestError, setConnectRequestError] = useState<string | null>(null)
   const [isSwitching, setIsSwitching] = useState(false)
   const [switchError, setSwitchError] = useState<string | null>(null)
@@ -161,11 +166,14 @@ export function useWalletConnection(config: AppConfig) {
     disconnectWallet: disconnect,
     isConnected: connection.isConnected,
     isConnecting,
+    isSigning,
     isSwitching,
     isWrongNetwork:
       connection.isConnected && connection.chainId !== targetChain.id,
     primaryConnectorName: primaryConnector?.name ?? null,
     requestSwitch,
+    signError: signError ? getErrorMessage(signError) : null,
+    signMessage: (message: string) => signMessageAsync({ message }),
     switchError,
     targetChain,
   }

@@ -94,6 +94,7 @@ describe('telegram backend helpers', () => {
     expect(verifyTelegramStateToken(stateToken, 'super-secret', 2_000)).toEqual({
       codeVerifier: 'code-verifier',
       nonce: 'nonce-value',
+      walletAddress: null,
     })
     expect(() =>
       verifyTelegramStateToken(`${stateToken}tampered`, 'super-secret', 2_000),

@@ -172,6 +172,7 @@ export function createTelegramStateToken(
   {
     codeVerifier,
     nonce,
+    walletAddress,
   },
   secret,
   now = Date.now(),
@@ -184,6 +185,7 @@ export function createTelegramStateToken(
       exp: issuedAt + STATE_TOKEN_TTL_SECONDS,
       iat: issuedAt,
       nonce,
+      ...(walletAddress ? { wallet_address: walletAddress } : {}),
     },
     secret,
   )
@@ -214,6 +216,8 @@ export function verifyTelegramStateToken(token, secret, now = Date.now()) {
   return {
     codeVerifier: payload.code_verifier,
     nonce: payload.nonce,
+    walletAddress:
+      typeof payload.wallet_address === 'string' ? payload.wallet_address : null,
   }
 }
 

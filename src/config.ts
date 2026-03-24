@@ -1,5 +1,3 @@
-import { getAddress, isAddress, type Address } from 'viem'
-
 export type EnvSource = Record<string, string | undefined>
 
 export type TargetChainConfig = {
@@ -14,21 +12,8 @@ export type TargetChainConfig = {
   rpcUrl: string
 }
 
-export type DiscordConfig = {
-  clientId: string
-  guildId: string
-  redirectUri: string
-}
-
-export type TelegramConfig = {
-  apiBaseUrl: string
-}
-
 export type AppConfig = {
-  contractAddress: Address
-  discord: DiscordConfig
-  startBlock: bigint
-  telegram: TelegramConfig
+  apiBaseUrl: string
   targetChain: TargetChainConfig
   walletConnectProjectId: string
 }
@@ -61,33 +46,10 @@ function parseUrl(name: string, rawValue: string) {
   }
 }
 
-function parseAddress(name: string, rawValue: string) {
-  if (!isAddress(rawValue)) {
-    throw new Error(`${name} must be a valid EVM address.`)
-  }
-
-  return getAddress(rawValue)
-}
-
-function parseSnowflake(name: string, rawValue: string) {
-  if (!/^\d+$/.test(rawValue)) {
-    throw new Error(`${name} must be a valid Discord snowflake.`)
-  }
-
-  return rawValue
-}
-
 export function parseAppConfig(env: EnvSource): AppConfig {
-  const contractAddress = parseAddress(
-    'VITE_PROCESS_REGISTRY_ADDRESS',
-    requireString(env, 'VITE_PROCESS_REGISTRY_ADDRESS'),
-  )
-  const startBlock = BigInt(
-    parseInteger(
-      'VITE_PROCESS_REGISTRY_START_BLOCK',
-      requireString(env, 'VITE_PROCESS_REGISTRY_START_BLOCK'),
-      0,
-    ),
+  const apiBaseUrl = parseUrl(
+    'VITE_API_BASE_URL',
+    requireString(env, 'VITE_API_BASE_URL'),
   )
   const chainId = parseInteger(
     'VITE_TARGET_CHAIN_ID',
@@ -117,34 +79,9 @@ export function parseAppConfig(env: EnvSource): AppConfig {
     env,
     'VITE_WALLETCONNECT_PROJECT_ID',
   )
-  const discordClientId = parseSnowflake(
-    'VITE_DISCORD_CLIENT_ID',
-    requireString(env, 'VITE_DISCORD_CLIENT_ID'),
-  )
-  const discordGuildId = parseSnowflake(
-    'VITE_DISCORD_GUILD_ID',
-    requireString(env, 'VITE_DISCORD_GUILD_ID'),
-  )
-  const discordRedirectUri = parseUrl(
-    'VITE_DISCORD_REDIRECT_URI',
-    requireString(env, 'VITE_DISCORD_REDIRECT_URI'),
-  )
-  const telegramApiBaseUrl = parseUrl(
-    'VITE_TELEGRAM_API_BASE_URL',
-    requireString(env, 'VITE_TELEGRAM_API_BASE_URL'),
-  )
 
   return {
-    contractAddress,
-    discord: {
-      clientId: discordClientId,
-      guildId: discordGuildId,
-      redirectUri: discordRedirectUri,
-    },
-    startBlock,
-    telegram: {
-      apiBaseUrl: telegramApiBaseUrl,
-    },
+    apiBaseUrl,
     targetChain: {
       blockExplorerUrl,
       id: chainId,
