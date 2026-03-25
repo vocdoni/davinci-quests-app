@@ -7,6 +7,8 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    ports:
+      - "27017:27017"
     restart: unless-stopped
     volumes:
       - mongo_data:/data/db

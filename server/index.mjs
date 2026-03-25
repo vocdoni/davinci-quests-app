@@ -11,6 +11,12 @@ import {
   refreshDiscordAccessToken,
 } from './discord.mjs'
 import {
+  buildGitHubAuthorizationUrl,
+  exchangeGitHubAuthorizationCode,
+  fetchGitHubUserStats,
+  GitHubApiError,
+} from './github.mjs'
+import {
   buildFrontendRedirect,
   clearCookie,
   json,
@@ -27,12 +33,14 @@ import {
   buildWalletSignInMessage,
   createAppSessionToken,
   createDiscordStateToken,
+  createGitHubStateToken,
   createRandomToken,
   createWalletChallengeToken,
   decryptSecret,
   encryptSecret,
   verifyAppSessionToken,
   verifyDiscordStateToken,
+  verifyGitHubStateToken,
   verifyWalletChallengeToken,
 } from './security.mjs'
 import {
@@ -45,10 +53,25 @@ import {
   verifyTelegramIdToken,
   verifyTelegramStateToken,
 } from './telegram.mjs'
+import {
+  fetchTwitterProofTweet,
+  TwitterApiError,
+} from './twitter.mjs'
 
 const APP_SESSION_COOKIE_NAME = 'quests_dashboard_app_session'
 const WALLET_CHALLENGE_COOKIE_NAME = 'quests_dashboard_wallet_challenge'
 const PROVIDER_CACHE_TTL_MS = 12 * 60 * 60 * 1000
+const TWITTER_CODE_TTL_MS = 5 * 60 * 1000
+
+class RequestError extends Error {
+  status
+
+  constructor(message, status) {
+    super(message)
+    this.name = 'RequestError'
+    this.status = status
+  }
+}
 
 function getErrorMessage(error) {
   if (error instanceof Error) {
@@ -109,7 +132,67 @@ function createLinkErrorRedirect(config, provider, description) {
   })
 }
 
-function buildDefaultIdentity(provider) {
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function containsTwitterProofCode(text, code) {
+  const expression = new RegExp(
+    `(^|[^A-Za-z0-9_-])${escapeRegExp(code)}([^A-Za-z0-9_-]|$)`,
+    'u',
+  )
+
+  return expression.test(text)
+}
+
+function buildDefaultGitHubStats(githubConfig) {
+  const targetRepositories = Array.isArray(githubConfig?.targetRepositories)
+    ? githubConfig.targetRepositories
+    : []
+
+  return {
+    isFollowingTargetOrganization: null,
+    isOlderThanOneYear: null,
+    publicNonForkRepositoryCount: null,
+    targetOrganization: githubConfig?.targetOrganization ?? null,
+    targetRepositories: targetRepositories.map((repository) => ({
+      fullName: repository.fullName,
+      isStarred: null,
+    })),
+  }
+}
+
+function normalizeGitHubTargetRepositories(value, githubConfig) {
+  const configuredRepositories = Array.isArray(githubConfig?.targetRepositories)
+    ? githubConfig.targetRepositories
+    : []
+
+  if (!Array.isArray(value)) {
+    return buildDefaultGitHubStats(githubConfig).targetRepositories
+  }
+
+  const storedRepositories = new Map()
+
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || typeof entry.fullName !== 'string') {
+      continue
+    }
+
+    storedRepositories.set(
+      entry.fullName,
+      typeof entry.isStarred === 'boolean' ? entry.isStarred : null,
+    )
+  }
+
+  return configuredRepositories.map((repository) => ({
+    fullName: repository.fullName,
+    isStarred: storedRepositories.has(repository.fullName)
+      ? storedRepositories.get(repository.fullName)
+      : null,
+  }))
+}
+
+function buildDefaultIdentity(provider, githubConfig = null) {
   return {
     checkedAt: null,
     connected: false,
@@ -119,6 +202,10 @@ function buildDefaultIdentity(provider) {
     stats:
       provider === 'discord'
         ? { isInTargetServer: null }
+        : provider === 'github'
+          ? buildDefaultGitHubStats(githubConfig)
+        : provider === 'twitter'
+          ? {}
         : { isInTargetChannel: null },
     status: 'disconnected',
     userId: null,
@@ -152,7 +239,11 @@ function shouldRefreshOnchain(profile, now) {
 }
 
 function shouldRefreshLink(link, now) {
-  if (link.provider === 'discord' && link.status === 'reauth_required') {
+  if (link.provider === 'twitter') {
+    return false
+  }
+
+  if (link.status === 'reauth_required') {
     return false
   }
 
@@ -160,9 +251,9 @@ function shouldRefreshLink(link, now) {
   return expiresAt === null || expiresAt <= now
 }
 
-function serializeIdentityLink(provider, link) {
+function serializeIdentityLink(provider, link, githubConfig = null) {
   if (!link) {
-    return buildDefaultIdentity(provider)
+    return buildDefaultIdentity(provider, githubConfig)
   }
 
   const stats =
@@ -176,6 +267,54 @@ function serializeIdentityLink(provider, link) {
               ? link.stats.isInTargetServer
               : null,
         }
+      : provider === 'github'
+        ? {
+            isFollowingTargetOrganization:
+              link.stats &&
+              typeof link.stats === 'object' &&
+              'isFollowingTargetOrganization' in link.stats &&
+              typeof link.stats.isFollowingTargetOrganization === 'boolean' &&
+              (
+                !githubConfig?.targetOrganization ||
+                ('targetOrganization' in link.stats &&
+                  typeof link.stats.targetOrganization === 'string' &&
+                  link.stats.targetOrganization === githubConfig.targetOrganization)
+              )
+                ? link.stats.isFollowingTargetOrganization
+                : null,
+            isOlderThanOneYear:
+              link.stats &&
+              typeof link.stats === 'object' &&
+              'isOlderThanOneYear' in link.stats &&
+              typeof link.stats.isOlderThanOneYear === 'boolean'
+                ? link.stats.isOlderThanOneYear
+                : null,
+            publicNonForkRepositoryCount:
+              link.stats &&
+              typeof link.stats === 'object' &&
+              'publicNonForkRepositoryCount' in link.stats &&
+              typeof link.stats.publicNonForkRepositoryCount === 'number'
+                ? link.stats.publicNonForkRepositoryCount
+                : null,
+            targetOrganization:
+              githubConfig?.targetOrganization ??
+              (link.stats &&
+              typeof link.stats === 'object' &&
+              'targetOrganization' in link.stats &&
+              typeof link.stats.targetOrganization === 'string'
+                ? link.stats.targetOrganization
+                : null),
+            targetRepositories: normalizeGitHubTargetRepositories(
+              link.stats &&
+                typeof link.stats === 'object' &&
+                'targetRepositories' in link.stats
+                ? link.stats.targetRepositories
+                : null,
+              githubConfig,
+            ),
+          }
+      : provider === 'twitter'
+        ? {}
       : {
           isInTargetChannel:
             link.stats &&
@@ -219,13 +358,19 @@ function serializeOnchainProfile(walletProfile) {
   }
 }
 
-function buildProfileResponse(walletAddress, walletProfile, links) {
+function buildProfileResponse(config, walletAddress, walletProfile, links) {
   const linkMap = new Map(links.map((link) => [link.provider, link]))
 
   return {
     identities: {
       discord: serializeIdentityLink('discord', linkMap.get('discord') ?? null),
+      github: serializeIdentityLink(
+        'github',
+        linkMap.get('github') ?? null,
+        config.github,
+      ),
       telegram: serializeIdentityLink('telegram', linkMap.get('telegram') ?? null),
+      twitter: serializeIdentityLink('twitter', linkMap.get('twitter') ?? null),
     },
     onchain: serializeOnchainProfile(walletProfile),
     wallet: {
@@ -312,6 +457,83 @@ async function persistTelegramLink(
   })
 }
 
+async function persistGitHubLink(
+  config,
+  dependencies,
+  walletAddress,
+  tokenResponse,
+  stats,
+) {
+  const existingLink = stats.userId
+    ? await dependencies.store.findIdentityLinkByProviderUserId('github', stats.userId)
+    : null
+
+  if (existingLink && existingLink.walletAddress !== walletAddress) {
+    throw new Error('GitHub account is already linked to another wallet.')
+  }
+
+  const now = dependencies.now()
+
+  return dependencies.store.upsertIdentityLink(walletAddress, 'github', {
+    checkedAt: new Date(now),
+    displayName: stats.displayName ?? null,
+    encryptedAccessToken: encryptSecret(
+      tokenResponse.accessToken,
+      config.providerTokenEncryptionSecret,
+    ),
+    expiresAt: new Date(now + PROVIDER_CACHE_TTL_MS),
+    githubAccountCreatedAt: new Date(stats.accountCreatedAt),
+    lastError: null,
+    providerUserId: stats.userId,
+    scope: tokenResponse.scope,
+    stats: {
+      isFollowingTargetOrganization: stats.isFollowingTargetOrganization,
+      isOlderThanOneYear: stats.isOlderThanOneYear,
+      publicNonForkRepositoryCount: stats.publicNonForkRepositoryCount,
+      targetOrganization: stats.targetOrganization,
+      targetRepositories: stats.targetRepositories,
+    },
+    status: 'active',
+    tokenType: tokenResponse.tokenType,
+    username: stats.username ?? null,
+  })
+}
+
+async function persistTwitterLink(dependencies, walletAddress, proofTweet) {
+  const existingLink = await dependencies.store.findIdentityLinkByProviderUserId(
+    'twitter',
+    proofTweet.username,
+  )
+
+  if (existingLink && existingLink.walletAddress !== walletAddress) {
+    throw new RequestError('Twitter account is already linked to another wallet.', 409)
+  }
+
+  const now = dependencies.now()
+
+  return dependencies.store.upsertIdentityLink(walletAddress, 'twitter', {
+    checkedAt: new Date(now),
+    displayName: proofTweet.displayName ?? null,
+    expiresAt: null,
+    lastError: null,
+    providerUserId: proofTweet.username,
+    stats: {},
+    status: 'active',
+    twitterProofTweetId: proofTweet.tweetId,
+    twitterProofTweetUrl: proofTweet.normalizedTweetUrl,
+    twitterVerifiedAt: new Date(now),
+    username: proofTweet.username,
+  })
+}
+
+async function clearPendingTwitterCode(dependencies, walletAddress) {
+  return dependencies.store.upsertWalletProfile(walletAddress, {
+    twitterPendingCode: null,
+    twitterPendingCodeExpiresAt: null,
+    twitterPendingCodeIssuedAt: null,
+  })
+}
+
 async function refreshDiscordLink(config, dependencies, link) {
   const now = dependencies.now()
   let refreshToken
@@ -393,9 +615,72 @@ async function refreshTelegramLink(config, dependencies, link) {
   }
 }
 
+async function refreshGitHubLink(config, dependencies, link) {
+  const now = dependencies.now()
+  let accessToken
+
+  try {
+    accessToken = decryptSecret(
+      link.encryptedAccessToken,
+      config.providerTokenEncryptionSecret,
+    )
+  } catch (error) {
+    return dependencies.store.upsertIdentityLink(link.walletAddress, 'github', {
+      checkedAt: new Date(now),
+      expiresAt: null,
+      lastError: getErrorMessage(error),
+      status: 'reauth_required',
+    })
+  }
+
+  try {
+    const stats = await dependencies.github.fetchUserStats({
+      accessToken,
+      targetOrganization: config.github.targetOrganization,
+      targetRepositories: config.github.targetRepositories,
+    })
+
+    return persistGitHubLink(
+      config,
+      dependencies,
+      link.walletAddress,
+      {
+        accessToken,
+        scope: typeof link.scope === 'string' ? link.scope : '',
+        tokenType: typeof link.tokenType === 'string' ? link.tokenType : 'bearer',
+      },
+      stats,
+    )
+  } catch (error) {
+    if (error instanceof GitHubApiError && error.status === 401) {
+      return dependencies.store.upsertIdentityLink(link.walletAddress, 'github', {
+        checkedAt: new Date(now),
+        expiresAt: null,
+        lastError: getErrorMessage(error),
+        status: 'reauth_required',
+      })
+    }
+
+    return dependencies.store.upsertIdentityLink(link.walletAddress, 'github', {
+      checkedAt: new Date(now),
+      expiresAt: new Date(now + PROVIDER_CACHE_TTL_MS),
+      lastError: getErrorMessage(error),
+      stats:
+        link.stats && typeof link.stats === 'object'
+          ? link.stats
+          : buildDefaultGitHubStats(config.github),
+      status: 'active',
+    })
+  }
+}
+
 async function refreshIdentityLink(config, dependencies, link) {
   if (link.provider === 'discord') {
     return refreshDiscordLink(config, dependencies, link)
+  }
+
+  if (link.provider === 'github') {
+    return refreshGitHubLink(config, dependencies, link)
   }
 
   if (link.provider === 'telegram') {
@@ -454,6 +739,12 @@ export function createApiDependencies({
       refreshAccessToken: (parameters) =>
         refreshDiscordAccessToken(parameters, fetchImpl),
     },
+    github: {
+      exchangeAuthorizationCode: (parameters) =>
+        exchangeGitHubAuthorizationCode(parameters, fetchImpl),
+      fetchUserStats: (parameters) =>
+        fetchGitHubUserStats(parameters, fetchImpl, now()),
+    },
     now,
     onchain,
     store,
@@ -464,6 +755,9 @@ export function createApiDependencies({
         fetchTelegramChannelMembership(parameters, fetchImpl),
       getOidcConfiguration: () => fetchTelegramOidcConfiguration(fetchImpl),
       verifyIdToken: (parameters) => verifyTelegramIdToken(parameters, fetchImpl),
+    },
+    twitter: {
+      fetchProofTweet: (parameters) => fetchTwitterProofTweet(parameters, fetchImpl),
     },
     verifyMessage: verifyMessageImpl,
   }
@@ -661,8 +955,105 @@ async function handleGetMe(config, dependencies, request, response) {
   json(
     response,
     200,
-    buildProfileResponse(session.walletAddress, nextWalletProfile, nextLinks),
+    buildProfileResponse(config, session.walletAddress, nextWalletProfile, nextLinks),
   )
+}
+
+async function handleTwitterCode(config, dependencies, request, response) {
+  const session = getAuthenticatedSession(request, config, dependencies)
+
+  if (!session) {
+    buildUnauthorizedResponse(response)
+    return
+  }
+
+  const now = dependencies.now()
+  const expiresAt = now + TWITTER_CODE_TTL_MS
+  const code = createRandomToken(9)
+
+  await dependencies.store.upsertWalletProfile(session.walletAddress, {
+    twitterPendingCode: code,
+    twitterPendingCodeExpiresAt: new Date(expiresAt),
+    twitterPendingCodeIssuedAt: new Date(now),
+  })
+
+  json(response, 200, {
+    code,
+    expiresAt: new Date(expiresAt).toISOString(),
+  })
+}
+
+async function handleTwitterVerify(config, dependencies, request, response) {
+  const session = getAuthenticatedSession(request, config, dependencies)
+
+  if (!session) {
+    buildUnauthorizedResponse(response)
+    return
+  }
+
+  const body = await readRequestJson(response, request)
+
+  if (body === null) {
+    return
+  }
+
+  if (typeof body?.tweetUrl !== 'string' || body.tweetUrl.trim().length === 0) {
+    json(response, 400, { message: 'Tweet URL is required.' })
+    return
+  }
+
+  const walletProfile = await dependencies.store.getWalletProfile(session.walletAddress)
+  const pendingCode =
+    walletProfile && typeof walletProfile.twitterPendingCode === 'string'
+      ? walletProfile.twitterPendingCode
+      : null
+  const pendingCodeExpiresAt = normalizeLinkTimestamp(walletProfile?.twitterPendingCodeExpiresAt)
+
+  if (!pendingCode || pendingCodeExpiresAt === null) {
+    json(response, 400, { message: 'No active Twitter proof code was found.' })
+    return
+  }
+
+  if (pendingCodeExpiresAt <= dependencies.now()) {
+    await clearPendingTwitterCode(dependencies, session.walletAddress)
+    json(response, 400, { message: 'Twitter proof code has expired.' })
+    return
+  }
+
+  let proofTweet
+
+  try {
+    proofTweet = await dependencies.twitter.fetchProofTweet({
+      tweetUrl: body.tweetUrl,
+    })
+  } catch (error) {
+    if (error instanceof TwitterApiError) {
+      json(response, error.status, { message: getErrorMessage(error) })
+      return
+    }
+
+    json(response, 400, { message: getErrorMessage(error) })
+    return
+  }
+
+  if (!containsTwitterProofCode(proofTweet.text, pendingCode)) {
+    json(response, 400, { message: 'Tweet does not contain the current Twitter proof code.' })
+    return
+  }
+
+  try {
+    await persistTwitterLink(dependencies, session.walletAddress, proofTweet)
+  } catch (error) {
+    if (error instanceof RequestError) {
+      json(response, error.status, { message: getErrorMessage(error) })
+      return
+    }
+
+    throw error
+  }
+
+  await clearPendingTwitterCode(dependencies, session.walletAddress)
+  noContent(response)
 }
 
 async function handleDeleteConnection(config, dependencies, requestUrl, request, response) {
@@ -675,7 +1066,12 @@ async function handleDeleteConnection(config, dependencies, requestUrl, request,
 
   const provider = requestUrl.pathname.split('/').at(-1)
 
-  if (provider !== 'discord' && provider !== 'telegram') {
+  if (
+    provider !== 'discord' &&
+    provider !== 'github' &&
+    provider !== 'telegram' &&
+    provider !== 'twitter'
+  ) {
     json(response, 404, { message: 'Not found' })
     return
   }
@@ -779,6 +1175,104 @@ async function handleDiscordCallback(config, dependencies, requestUrl, request, 
     redirect(
       response,
       createLinkErrorRedirect(config, 'discord', getErrorMessage(error)),
+    )
+  }
+}
+
+async function handleGitHubStart(config, dependencies, request, response) {
+  const session = getAuthenticatedSession(request, config, dependencies)
+
+  if (!session) {
+    buildUnauthorizedResponse(response)
+    return
+  }
+
+  const state = createGitHubStateToken(
+    {
+      walletAddress: session.walletAddress,
+    },
+    config.appSessionSecret,
+    dependencies.now(),
+  )
+
+  redirect(response, buildGitHubAuthorizationUrl(config.github, state))
+}
+
+async function handleGitHubCallback(config, dependencies, requestUrl, request, response) {
+  const stateToken = requestUrl.searchParams.get('state')
+  const code = requestUrl.searchParams.get('code')
+  const authError =
+    requestUrl.searchParams.get('error_description') ??
+    requestUrl.searchParams.get('error')
+
+  if (authError) {
+    redirect(
+      response,
+      createLinkErrorRedirect(config, 'github', authError),
+    )
+    return
+  }
+
+  if (!code || !stateToken) {
+    redirect(
+      response,
+      createLinkErrorRedirect(config, 'github', 'GitHub login could not be completed.'),
+    )
+    return
+  }
+
+  let state
+
+  try {
+    state = verifyGitHubStateToken(
+      stateToken,
+      config.appSessionSecret,
+      dependencies.now(),
+    )
+  } catch (error) {
+    redirect(
+      response,
+      createLinkErrorRedirect(config, 'github', getErrorMessage(error)),
+    )
+    return
+  }
+
+  const session = getAuthenticatedSession(request, config, dependencies)
+
+  if (!session || session.walletAddress !== state.walletAddress) {
+    redirect(
+      response,
+      createLinkErrorRedirect(config, 'github', 'Wallet session expired before GitHub linking completed.'),
+    )
+    return
+  }
+
+  try {
+    const tokenResponse = await dependencies.github.exchangeAuthorizationCode({
+      clientId: config.github.clientId,
+      clientSecret: config.github.clientSecret,
+      code,
+      redirectUri: config.github.redirectUri,
+    })
+    const stats = await dependencies.github.fetchUserStats({
+      accessToken: tokenResponse.accessToken,
+      targetOrganization: config.github.targetOrganization,
+      targetRepositories: config.github.targetRepositories,
+    })
+
+    await persistGitHubLink(
+      config,
+      dependencies,
+      session.walletAddress,
+      tokenResponse,
+      stats,
+    )
+
+    redirect(response, createLinkSuccessRedirect(config, 'github'))
+  } catch (error) {
+    redirect(
+      response,
+      createLinkErrorRedirect(config, 'github', getErrorMessage(error)),
     )
   }
 }
@@ -973,6 +1467,19 @@ export function createApiServer(config, dependencies) {
         return
       }
 
+      if (request.method === 'GET' && requestUrl.pathname === '/api/connections/github/start') {
+        await handleGitHubStart(config, dependencies, request, response)
+        return
+      }
+
+      if (
+        request.method === 'GET' &&
+        requestUrl.pathname === '/api/connections/github/callback'
+      ) {
+        await handleGitHubCallback(config, dependencies, requestUrl, request, response)
+        return
+      }
+
       if (request.method === 'GET' && requestUrl.pathname === '/api/connections/telegram/start') {
         await handleTelegramStart(config, dependencies, request, response)
         return
@@ -983,6 +1490,16 @@ export function createApiServer(config, dependencies) {
         requestUrl.pathname === '/api/connections/telegram/callback'
       ) {
         await handleTelegramCallback(config, dependencies, requestUrl, request, response)
+        return
+      }
+
+      if (request.method === 'POST' && requestUrl.pathname === '/api/connections/twitter/code') {
+        await handleTwitterCode(config, dependencies, request, response)
+        return
+      }
+
+      if (request.method === 'POST' && requestUrl.pathname === '/api/connections/twitter/verify') {
+        await handleTwitterVerify(config, dependencies, request, response)
         return
       }
 

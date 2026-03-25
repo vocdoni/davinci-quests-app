@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { getAddress, isAddress, type Address } from 'viem'
 import { ApiError, buildApiUrl, requestJson, requestVoid } from '../lib/api'
 
-export type ProviderName = 'discord' | 'telegram'
+export type ProviderName = 'discord' | 'github' | 'telegram' | 'twitter'
 
 type DiscordIdentity = {
   checkedAt: string | null
@@ -13,6 +13,27 @@ type DiscordIdentity = {
   expiresAt: string | null
   stats: {
     isInTargetServer: boolean | null
+  }
+  status: string
+  userId: string | null
+  username: string | null
+}
+
+type GitHubIdentity = {
+  checkedAt: string | null
+  connected: boolean
+  displayName: string | null
+  error: string | null
+  expiresAt: string | null
+  stats: {
+    isFollowingTargetOrganization: boolean | null
+    isOlderThanOneYear: boolean | null
+    publicNonForkRepositoryCount: number | null
+    targetOrganization: string | null
+    targetRepositories: Array<{
+      fullName: string
+      isStarred: boolean | null
+    }>
   }
   status: string
   userId: string | null
@@ -33,10 +54,24 @@ type TelegramIdentity = {
   username: string | null
 }
 
+type TwitterIdentity = {
+  checkedAt: string | null
+  connected: boolean
+  displayName: string | null
+  error: string | null
+  expiresAt: string | null
+  stats: Record<string, never>
+  status: string
+  userId: string | null
+  username: string | null
+}
+
 export type AppProfile = {
   identities: {
     discord: DiscordIdentity
+    github: GitHubIdentity
     telegram: TelegramIdentity
+    twitter: TwitterIdentity
   }
   onchain: {
     checkedAt: string | null
@@ -82,7 +117,7 @@ function clearHash() {
   )
 }
 
-function parseLinkFeedback(hash: string): LinkFeedback | null {
+export function parseLinkFeedback(hash: string): LinkFeedback | null {
   const normalizedHash = hash.startsWith('#') ? hash.slice(1) : hash
 
   if (!normalizedHash) {
@@ -94,7 +129,7 @@ function parseLinkFeedback(hash: string): LinkFeedback | null {
   const status = params.get('link_status')
 
   if (
-    (provider !== 'discord' && provider !== 'telegram') ||
+    (provider !== 'discord' && provider !== 'github' && provider !== 'telegram') ||
     (status !== 'error' && status !== 'success')
   ) {
     return null
@@ -202,6 +237,25 @@ export function useAppSession({
     window.location.assign(buildApiUrl(apiBaseUrl, `/api/connections/${provider}/start`))
   }
 
+  const requestTwitterCode = () =>
+    requestJson<{ code: string; expiresAt: string }>(
+      apiBaseUrl,
+      '/api/connections/twitter/code',
+      {
+        method: 'POST',
+      },
+    )
+
+  const verifyTwitterTweet = async (tweetUrl: string) => {
+    await requestVoid(apiBaseUrl, '/api/connections/twitter/verify', {
+      body: JSON.stringify({ tweetUrl }),
+      method: 'POST',
+    })
+    await queryClient.invalidateQueries({
+      queryKey: ['app-profile', apiBaseUrl],
+    })
+  }
+
   return {
     clearLinkFeedback: () => {
       setLinkFeedback(null)
@@ -214,10 +268,12 @@ export function useAppSession({
     logout,
     profile,
     refetchProfile: profileQuery.refetch,
+    requestTwitterCode,
     requestWalletChallenge,
     sessionWalletAddress,
     startProviderConnection,
     unlinkProvider,
+    verifyTwitterTweet,
     verifyWallet,
   }
 }

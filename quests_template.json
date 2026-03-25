@@ -1,0 +1,9 @@
+[
+    {
+        "id": 1,
+        "title": "Quest title",
+        "description": "Quest description",
+        "points": 10,
+        "achievement": "stats.condition >= 10"
+    }
+]

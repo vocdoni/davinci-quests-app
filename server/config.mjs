@@ -55,6 +55,54 @@ function parseTelegramClientId(rawValue) {
   return rawValue
 }
 
+function parseGitHubTargetOrganization(rawValue) {
+  const normalizedValue = rawValue.trim()
+
+  if (!/^[A-Za-z0-9-]+$/.test(normalizedValue)) {
+    throw new Error(
+      'GITHUB_TARGET_ORGANIZATION must be a valid GitHub organization handle.',
+    )
+  }
+
+  return normalizedValue
+}
+
+function parseGitHubTargetRepositories(rawValue) {
+  const repositories = rawValue
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
+  if (repositories.length === 0) {
+    throw new Error(
+      'GITHUB_TARGET_REPOSITORIES must include at least one owner/repository value.',
+    )
+  }
+
+  return repositories.map((repository, index) => {
+    const parts = repository.split('/').map((entry) => entry.trim())
+
+    if (
+      parts.length !== 2 ||
+      parts[0].length === 0 ||
+      parts[1].length === 0 ||
+      parts.some((entry) => entry.includes('/'))
+    ) {
+      throw new Error(
+        `GITHUB_TARGET_REPOSITORIES entry #${index + 1} must use the owner/repository format.`,
+      )
+    }
+
+    const [owner, name] = parts
+
+    return {
+      fullName: `${owner}/${name}`,
+      name,
+      owner,
+    }
+  })
+}
+
 function parseAddress(name, rawValue) {
   if (!isAddress(rawValue)) {
     throw new Error(`${name} must be a valid EVM address.`)
@@ -71,6 +119,11 @@ export function parseServerConfig(env = process.env) {
     'DISCORD_GUILD_ID',
     'DISCORD_REDIRECT_URI',
     'FRONTEND_APP_URL',
+    'GITHUB_CLIENT_ID',
+    'GITHUB_CLIENT_SECRET',
+    'GITHUB_REDIRECT_URI',
+    'GITHUB_TARGET_ORGANIZATION',
+    'GITHUB_TARGET_REPOSITORIES',
     'MONGODB_DB_NAME',
     'MONGODB_URI',
     'ONCHAIN_PROCESS_REGISTRY_ADDRESS',
@@ -115,6 +168,20 @@ export function parseServerConfig(env = process.env) {
     },
     frontendAppUrl,
     frontendOrigin: new URL(frontendAppUrl).origin,
+    github: {
+      clientId: requireString(env, 'GITHUB_CLIENT_ID'),
+      clientSecret: requireString(env, 'GITHUB_CLIENT_SECRET'),
+      redirectUri: parseUrl(
+        'GITHUB_REDIRECT_URI',
+        requireString(env, 'GITHUB_REDIRECT_URI'),
+      ),
+      targetOrganization: parseGitHubTargetOrganization(
+        requireString(env, 'GITHUB_TARGET_ORGANIZATION'),
+      ),
+      targetRepositories: parseGitHubTargetRepositories(
+        requireString(env, 'GITHUB_TARGET_REPOSITORIES'),
+      ),
+    },
     mongo: {
       dbName: requireString(env, 'MONGODB_DB_NAME'),
       uri: requireString(env, 'MONGODB_URI'),

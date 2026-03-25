@@ -9,6 +9,12 @@ type AppProps = {
   config: AppConfig
 }
 
+type TwitterProofState = {
+  code: string
+  expiresAt: string
+  tweetUrl: string
+}
+
 type StatsPayload = {
   discord: {
     checkedAt: string | null
@@ -17,6 +23,24 @@ type StatsPayload = {
     isConnected: boolean
     isInTargetServer: boolean | null
     status: string
+    userId: string | null
+    username: string | null
+  }
+  github: {
+    checkedAt: string | null
+    displayName: string | null
+    error: string | null
+    expiresAt: string | null
+    isConnected: boolean
+    isFollowingTargetOrganization: boolean | null
+    isOlderThanOneYear: boolean | null
+    publicNonForkRepositoryCount: number | null
+    status: string
+    targetOrganization: string | null
+    targetRepositories: Array<{
+      fullName: string
+      isStarred: boolean | null
+    }>
     userId: string | null
     username: string | null
   }
@@ -39,6 +63,16 @@ type StatsPayload = {
     userId: string | null
     username: string | null
   }
+  twitter: {
+    checkedAt: string | null
+    displayName: string | null
+    error: string | null
+    expiresAt: string | null
+    isConnected: boolean
+    status: string
+    userId: string | null
+    username: string | null
+  }
 }
 
 function areSameAddresses(left?: string | null, right?: string | null) {
@@ -51,18 +85,6 @@ function areSameAddresses(left?: string | null, right?: string | null) {
   } catch {
     return false
   }
-}
-
-function formatTableValue(value: boolean | number | string | null) {
-  if (value === null) {
-    return 'null'
-  }
-
-  if (typeof value === 'boolean') {
-    return value ? 'true' : 'false'
-  }
-
-  return String(value)
 }
 
 function getStatsPayload({
@@ -94,6 +116,23 @@ function getStatsPayload({
         session.profile.identities.discord.displayName ??
         session.profile.identities.discord.username,
     },
+    github: {
+      checkedAt: session.profile.identities.github.checkedAt,
+      displayName: session.profile.identities.github.displayName,
+      error: session.profile.identities.github.error,
+      expiresAt: session.profile.identities.github.expiresAt,
+      isConnected: session.profile.identities.github.connected,
+      isFollowingTargetOrganization:
+        session.profile.identities.github.stats.isFollowingTargetOrganization,
+      isOlderThanOneYear: session.profile.identities.github.stats.isOlderThanOneYear,
+      publicNonForkRepositoryCount:
+        session.profile.identities.github.stats.publicNonForkRepositoryCount,
+      status: session.profile.identities.github.status,
+      targetOrganization: session.profile.identities.github.stats.targetOrganization,
+      targetRepositories: session.profile.identities.github.stats.targetRepositories,
+      userId: session.profile.identities.github.userId,
+      username: session.profile.identities.github.username,
+    },
     onchain: {
       address: wallet.address,
       checkedAt: session.profile.onchain.checkedAt,
@@ -113,6 +152,16 @@ function getStatsPayload({
       userId: session.profile.identities.telegram.userId,
       username: session.profile.identities.telegram.username,
     },
+    twitter: {
+      checkedAt: session.profile.identities.twitter.checkedAt,
+      displayName: session.profile.identities.twitter.displayName,
+      error: session.profile.identities.twitter.error,
+      expiresAt: session.profile.identities.twitter.expiresAt,
+      isConnected: session.profile.identities.twitter.connected,
+      status: session.profile.identities.twitter.status,
+      userId: session.profile.identities.twitter.userId,
+      username: session.profile.identities.twitter.username,
+    },
   }
 }
 
@@ -127,46 +176,15 @@ function App({ config }: AppProps) {
   const lastLoggedStatsRef = useRef<string | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
   const [isSigningIn, setIsSigningIn] = useState(false)
-  const [providerAction, setProviderAction] = useState<'discord' | 'telegram' | null>(null)
+  const [twitterError, setTwitterError] = useState<string | null>(null)
+  const [twitterProof, setTwitterProof] = useState<TwitterProofState | null>(null)
+  const [providerAction, setProviderAction] = useState<
+    'discord' | 'github' | 'telegram' | 'twitter' | null
+  >(null)
   const payload = getStatsPayload({
     session,
     wallet,
   })
-  const tableRows = payload
-    ? [
-        ['discord', 'checkedAt', formatTableValue(payload.discord.checkedAt)],
-        ['discord', 'error', formatTableValue(payload.discord.error)],
-        ['discord', 'expiresAt', formatTableValue(payload.discord.expiresAt)],
-        ['discord', 'isConnected', formatTableValue(payload.discord.isConnected)],
-        ['discord', 'isInTargetServer', formatTableValue(payload.discord.isInTargetServer)],
-        ['discord', 'status', formatTableValue(payload.discord.status)],
-        ['discord', 'userId', formatTableValue(payload.discord.userId)],
-        ['discord', 'username', formatTableValue(payload.discord.username)],
-        ['telegram', 'checkedAt', formatTableValue(payload.telegram.checkedAt)],
-        ['telegram', 'displayName', formatTableValue(payload.telegram.displayName)],
-        ['telegram', 'error', formatTableValue(payload.telegram.error)],
-        ['telegram', 'expiresAt', formatTableValue(payload.telegram.expiresAt)],
-        ['telegram', 'isConnected', formatTableValue(payload.telegram.isConnected)],
-        [
-          'telegram',
-          'isInTargetChannel',
-          formatTableValue(payload.telegram.isInTargetChannel),
-        ],
-        ['telegram', 'status', formatTableValue(payload.telegram.status)],
-        ['telegram', 'userId', formatTableValue(payload.telegram.userId)],
-        ['telegram', 'username', formatTableValue(payload.telegram.username)],
-        ['onchain', 'address', formatTableValue(payload.onchain.address)],
-        ['onchain', 'checkedAt', formatTableValue(payload.onchain.checkedAt)],
-        ['onchain', 'error', formatTableValue(payload.onchain.error)],
-        ['onchain', 'expiresAt', formatTableValue(payload.onchain.expiresAt)],
-        [
-          'onchain',
-          'numberOfProcesses',
-          formatTableValue(payload.onchain.numberOfProcesses),
-        ],
-        ['onchain', 'totalVotes', formatTableValue(payload.onchain.totalVotes)],
-      ]
-    : null
   const requestAutoSwitch = useEffectEvent(() => {
     void wallet.requestSwitch()
   })
@@ -203,6 +221,8 @@ function App({ config }: AppProps) {
   useEffect(() => {
     if (!wallet.isConnected) {
       lastLoggedStatsRef.current = null
+      setTwitterError(null)
+      setTwitterProof(null)
 
       if (session.sessionWalletAddress) {
         logoutSession()
@@ -227,7 +247,16 @@ function App({ config }: AppProps) {
 
   useEffect(() => {
     setAuthError(null)
+    setTwitterError(null)
+    setTwitterProof(null)
   }, [wallet.address])
+
+  useEffect(() => {
+    if (session.profile?.identities.twitter.connected) {
+      setTwitterError(null)
+      setTwitterProof(null)
+    }
+  }, [session.profile?.identities.twitter.connected])
 
   useEffect(() => {
     if (!payload) {
@@ -280,10 +309,12 @@ function App({ config }: AppProps) {
 
   const handleWalletSignOut = async () => {
     setAuthError(null)
+    setTwitterError(null)
+    setTwitterProof(null)
     await session.logout()
   }
 
-  const handleProviderClick = async (provider: 'discord' | 'telegram') => {
+  const handleProviderClick = async (provider: 'discord' | 'github' | 'telegram') => {
     const identity = session.profile?.identities[provider] ?? null
 
     if (identity?.connected) {
@@ -298,6 +329,56 @@ function App({ config }: AppProps) {
     }
 
     session.startProviderConnection(provider)
+  }
+
+  const handleTwitterConnect = async () => {
+    setTwitterError(null)
+    setProviderAction('twitter')
+
+    try {
+      const nextProof = await session.requestTwitterCode()
+      setTwitterProof({
+        code: nextProof.code,
+        expiresAt: nextProof.expiresAt,
+        tweetUrl: '',
+      })
+    } catch (error) {
+      setTwitterError(error instanceof Error ? error.message : 'Twitter code could not be generated.')
+    } finally {
+      setProviderAction(null)
+    }
+  }
+
+  const handleTwitterVerify = async () => {
+    if (!twitterProof) {
+      return
+    }
+
+    setTwitterError(null)
+    setProviderAction('twitter')
+
+    try {
+      await session.verifyTwitterTweet(twitterProof.tweetUrl)
+      setTwitterProof(null)
+    } catch (error) {
+      setTwitterError(error instanceof Error ? error.message : 'Twitter verification failed.')
+    } finally {
+      setProviderAction(null)
+    }
+  }
+
+  const handleTwitterDisconnect = async () => {
+    setTwitterError(null)
+    setProviderAction('twitter')
+
+    try {
+      await session.unlinkProvider('twitter')
+      setTwitterProof(null)
+    } catch (error) {
+      setTwitterError(error instanceof Error ? error.message : 'Twitter could not be disconnected.')
+    } finally {
+      setProviderAction(null)
+    }
   }
 
   const walletStatusLabel = wallet.isConnected
@@ -316,6 +397,7 @@ function App({ config }: AppProps) {
     : null
   const primaryError =
     authError ??
+    twitterError ??
     wallet.connectError ??
     wallet.switchError ??
     wallet.signError ??
@@ -401,8 +483,7 @@ function App({ config }: AppProps) {
             className="minimal-button discord-button"
             disabled={
               !session.isAuthenticated ||
-              providerAction === 'telegram' ||
-              providerAction === 'discord'
+              providerAction !== null
             }
             onClick={() => {
               void handleProviderClick('discord')
@@ -416,11 +497,27 @@ function App({ config }: AppProps) {
                 : 'Connect Discord'}
           </button>
           <button
+            className="minimal-button github-button"
+            disabled={
+              !session.isAuthenticated ||
+              providerAction !== null
+            }
+            onClick={() => {
+              void handleProviderClick('github')
+            }}
+            type="button"
+          >
+            {providerAction === 'github'
+              ? 'Updating GitHub...'
+              : session.profile?.identities.github.connected
+                ? 'Disconnect GitHub'
+                : 'Connect GitHub'}
+          </button>
+          <button
             className="minimal-button telegram-button"
             disabled={
               !session.isAuthenticated ||
-              providerAction === 'discord' ||
-              providerAction === 'telegram'
+              providerAction !== null
             }
             onClick={() => {
               void handleProviderClick('telegram')
@@ -433,28 +530,76 @@ function App({ config }: AppProps) {
                 ? 'Disconnect Telegram'
                 : 'Connect Telegram'}
           </button>
-        </div>
+          <button
+            className="minimal-button twitter-button"
+            disabled={
+              !session.isAuthenticated ||
+              providerAction !== null
+            }
+            onClick={() => {
+              if (session.profile?.identities.twitter.connected) {
+                void handleTwitterDisconnect()
+                return
+              }
 
-        {tableRows ? (
-          <div className="stats-table-shell">
-            <table className="stats-table">
-              <thead>
-                <tr>
-                  <th scope="col">Section</th>
-                  <th scope="col">Field</th>
-                  <th scope="col">Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tableRows.map(([section, field, value]) => (
-                  <tr key={`${section}-${field}`}>
-                    <td>{section}</td>
-                    <td>{field}</td>
-                    <td>{value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              void handleTwitterConnect()
+            }}
+            type="button"
+          >
+            {providerAction === 'twitter'
+              ? 'Updating Twitter...'
+              : session.profile?.identities.twitter.connected
+                ? 'Disconnect Twitter'
+                : twitterProof
+                  ? 'Refresh Twitter code'
+                  : 'Connect Twitter'}
+          </button>
+        </div>
+        {session.isAuthenticated && !session.profile?.identities.twitter.connected && twitterProof ? (
+          <div className="twitter-proof-shell">
+            <p className="status-line status-note">
+              Tweet this proof code from the Twitter account you want to link.
+            </p>
+            <p className="twitter-proof-code">
+              {twitterProof.code}
+            </p>
+            <p className="status-line">
+              Code expires at: {new Date(twitterProof.expiresAt).toLocaleString()}
+            </p>
+            <label className="twitter-proof-label" htmlFor="twitter-proof-url">
+              Tweet URL
+            </label>
+            <input
+              className="twitter-proof-input"
+              disabled={providerAction !== null}
+              id="twitter-proof-url"
+              onChange={(event) => {
+                setTwitterProof((currentProof) =>
+                  currentProof
+                    ? {
+                        ...currentProof,
+                        tweetUrl: event.target.value,
+                      }
+                    : currentProof,
+                )
+              }}
+              placeholder="https://x.com/your-handle/status/1234567890"
+              type="url"
+              value={twitterProof.tweetUrl}
+            />
+            <button
+              className="minimal-button twitter-verify-button"
+              disabled={
+                providerAction !== null ||
+                twitterProof.tweetUrl.trim().length === 0
+              }
+              onClick={() => {
+                void handleTwitterVerify()
+              }}
+              type="button"
+            >
+              {providerAction === 'twitter' ? 'Verifying tweet...' : 'Verify tweet'}
+            </button>
           </div>
         ) : null}
       </div>

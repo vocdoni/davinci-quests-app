@@ -10,13 +10,15 @@ This README only covers how to run the project locally.
 - A browser wallet supported by WalletConnect or an injected wallet
 - Optional but required for full social linking:
   - a Discord OAuth application
+  - a GitHub OAuth application
   - a Telegram app and bot
+  - a public X/Twitter account for tweet-based verification
 
 ## Ports Used Locally
 
 - Web app: `http://localhost:5173`
 - API: `http://localhost:3001`
-- MongoDB in the local Docker stack: `mongodb://localhost:27017` is **not** published by default; the API reaches it through the Compose network
+- MongoDB in the local Docker stack: `mongodb://localhost:27017`
 
 ## Environment Files
 
@@ -65,6 +67,8 @@ Required values:
 
 - `APP_SESSION_SECRET`
 - `MONGODB_URI`
+  - use `mongodb://mongo:27017/quests_dashboard` when the API runs inside Docker Compose
+  - use `mongodb://localhost:27017/quests_dashboard` when the API runs locally and only Mongo runs in Docker
 - `MONGODB_DB_NAME`
 - `ONCHAIN_PROCESS_REGISTRY_ADDRESS`
 - `ONCHAIN_PROCESS_REGISTRY_START_BLOCK`
@@ -86,6 +90,18 @@ Discord values:
 - `DISCORD_REDIRECT_URI`
   - use `http://localhost:3001/api/connections/discord/callback`
 
+GitHub values:
+
+- `GITHUB_CLIENT_ID`
+- `GITHUB_CLIENT_SECRET`
+- `GITHUB_REDIRECT_URI`
+  - use `http://localhost:3001/api/connections/github/callback`
+- `GITHUB_TARGET_ORGANIZATION`
+  - example: `vocdoni`
+- `GITHUB_TARGET_REPOSITORIES`
+  - comma-separated `owner/repository` list
+  - example: `vocdoni/davinciNode,vocdoni/davinciSDK`
+
 Telegram values:
 
 - `TELEGRAM_APP_JWT_SECRET`
@@ -98,18 +114,85 @@ Telegram values:
 
 ## Important OAuth Setup
 
-If you want Discord and Telegram linking to actually work locally, configure the provider apps with these callback URLs:
+If you want Discord, GitHub, Telegram, and Twitter linking to actually work locally, configure the provider apps with these callback URLs:
 
 - Discord redirect URI:
   - `http://localhost:3001/api/connections/discord/callback`
+- GitHub redirect URI:
+  - `http://localhost:3001/api/connections/github/callback`
 - Telegram redirect URI:
   - `http://localhost:3001/api/connections/telegram/callback`
 
-If you leave the example placeholder values in place, the app and API can still boot, but Discord and Telegram login/linking will fail until real credentials are configured.
+If you leave the example placeholder values in place, the app and API can still boot, but Discord, GitHub, and Telegram login/linking will fail until real credentials are configured.
 
-## Option 1: Run Locally Without Docker Compose
+Twitter does not require any extra env vars or an OAuth application in this version. The API verifies a public proof tweet through X's oEmbed endpoint.
 
-This is the best path if you want the fastest edit-refresh loop.
+## Option 1: Run Mongo In Docker, API And Web Locally
+
+This is the best path if you want the fastest edit-refresh loop and hot reloading.
+
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Prepare env files
+
+Create:
+
+- `.env`
+- `.env.server`
+
+For this setup, make sure your backend env points to Mongo on your host:
+
+```env
+MONGODB_URI=mongodb://localhost:27017/quests_dashboard
+MONGODB_DB_NAME=quests_dashboard
+```
+
+### 3. Start Mongo only
+
+```bash
+docker compose up -d mongo
+```
+
+Mongo will be available at:
+
+- `mongodb://localhost:27017/quests_dashboard`
+
+### 4. Start the API with watch mode
+
+```bash
+npm run api:dev
+```
+
+The API will be available at:
+
+- `http://localhost:3001`
+- health check: `http://localhost:3001/health`
+
+### 5. Start the web app with Vite hot reload
+
+In a second terminal:
+
+```bash
+npm run dev
+```
+
+Open:
+
+- `http://localhost:5173`
+
+### 6. Stop Mongo when you are done
+
+```bash
+docker compose stop mongo
+```
+
+## Option 2: Run Everything Locally Without Docker Compose
+
+Use this if you already have Mongo available outside Docker.
 
 ### 1. Install dependencies
 
@@ -177,16 +260,19 @@ Once both processes are running:
 
 1. Connect your wallet.
 2. Sign in with the wallet.
-3. Connect Discord and Telegram if you configured real provider credentials.
-4. Verify the merged stats table loads.
+3. Connect Discord, GitHub, and Telegram if you configured real provider credentials.
+4. Connect Twitter by generating a proof code, posting it in a tweet, and pasting the tweet URL back into the app.
+5. Verify the linked identity statuses and cached stats load.
 
-## Option 2: Run the Full Local Stack With Docker Compose
+## Option 3: Run The Full Local Stack With Docker Compose
 
 This starts:
 
 - `web`
 - `api`
 - `mongo`
+
+This is the most production-like local setup, but it does not give you frontend or API hot reload.
 
 ### 1. Prepare the two env files
 
@@ -267,7 +353,7 @@ Check:
 - `VITE_API_BASE_URL` matches the API URL
 - `FRONTEND_APP_URL` matches the real browser origin
 
-### Discord or Telegram linking redirects back with an error
+### Discord, GitHub, or Telegram linking redirects back with an error
 
 Check:
 
@@ -285,4 +371,4 @@ Check:
 
 ### Compose starts but social linking still fails
 
-That usually means the stack is healthy but still using placeholder provider values. Add real Discord and Telegram credentials to `.env.server` and restart the stack.
+That usually means the stack is healthy but still using placeholder provider values. Add real Discord, GitHub, and Telegram credentials to `.env.server` and restart the stack.

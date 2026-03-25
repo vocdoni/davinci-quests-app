@@ -17,6 +17,24 @@ const baseConfig = {
   },
   frontendAppUrl: 'https://app.example.org',
   frontendOrigin: 'https://app.example.org',
+  github: {
+    clientId: 'github-client-id',
+    clientSecret: 'github-client-secret',
+    redirectUri: 'https://api.example.org/api/connections/github/callback',
+    targetOrganization: 'vocdoni',
+    targetRepositories: [
+      {
+        fullName: 'vocdoni/davinciNode',
+        name: 'davinciNode',
+        owner: 'vocdoni',
+      },
+      {
+        fullName: 'vocdoni/davinciSDK',
+        name: 'davinciSDK',
+        owner: 'vocdoni',
+      },
+    ],
+  },
   mongo: {
     dbName: 'quests-dashboard',
     uri: 'mongodb://mongo:27017/quests-dashboard',
@@ -291,6 +309,32 @@ describe('API server', () => {
           userId: null,
           username: null,
         },
+        github: {
+          checkedAt: null,
+          connected: false,
+          displayName: null,
+          error: null,
+          expiresAt: null,
+          stats: {
+            isFollowingTargetOrganization: null,
+            isOlderThanOneYear: null,
+            publicNonForkRepositoryCount: null,
+            targetOrganization: 'vocdoni',
+            targetRepositories: [
+              {
+                fullName: 'vocdoni/davinciNode',
+                isStarred: null,
+              },
+              {
+                fullName: 'vocdoni/davinciSDK',
+                isStarred: null,
+              },
+            ],
+          },
+          status: 'disconnected',
+          userId: null,
+          username: null,
+        },
         telegram: {
           checkedAt: null,
           connected: false,
@@ -300,6 +344,17 @@ describe('API server', () => {
           stats: {
             isInTargetChannel: null,
           },
+          status: 'disconnected',
+          userId: null,
+          username: null,
+        },
+        twitter: {
+          checkedAt: null,
+          connected: false,
+          displayName: null,
+          error: null,
+          expiresAt: null,
+          stats: {},
           status: 'disconnected',
           userId: null,
           username: null,
@@ -408,6 +463,254 @@ describe('API server', () => {
     expect(JSON.parse(verifyResponse.body)).toEqual({
       message: 'Unauthorized',
     })
+  })
+
+  it('generates, verifies, and deletes a Twitter proof link', async () => {
+    const store = createMemoryStore()
+    const twitterDependencies = {
+      fetchProofTweet: vi.fn(),
+    }
+    const server = createApiServer(baseConfig, {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      github: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+      },
+      now: () => new Date('2026-03-25T12:00:00.000Z').getTime(),
+      onchain: createOnchainDependencies(),
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      twitter: twitterDependencies,
+      verifyMessage,
+    })
+    const account = privateKeyToAccount(
+      '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
+    )
+
+    const { sessionCookie } = await authenticateWallet(server, account)
+    const firstCodeResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'POST',
+      url: '/api/connections/twitter/code',
+    })
+    const secondCodeResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'POST',
+      url: '/api/connections/twitter/code',
+    })
+    const firstCode = JSON.parse(firstCodeResponse.body).code
+    const secondCode = JSON.parse(secondCodeResponse.body).code
+
+    twitterDependencies.fetchProofTweet
+      .mockResolvedValueOnce({
+        displayName: 'Quest Tweeter',
+        normalizedTweetUrl: 'https://twitter.com/questtweeter/status/1111111111',
+        text: `proof ${firstCode}`,
+        tweetId: '1111111111',
+        username: 'questtweeter',
+      })
+      .mockResolvedValueOnce({
+        displayName: 'Quest Tweeter',
+        normalizedTweetUrl: 'https://twitter.com/questtweeter/status/2222222222',
+        text: `proof ${secondCode}`,
+        tweetId: '2222222222',
+        username: 'questtweeter',
+      })
+
+    const failedVerifyResponse = await performRequest(server, {
+      body: JSON.stringify({
+        tweetUrl: 'https://x.com/questtweeter/status/1111111111',
+      }),
+      headers: {
+        'content-type': 'application/json',
+        cookie: sessionCookie ?? '',
+      },
+      method: 'POST',
+      url: '/api/connections/twitter/verify',
+    })
+    const successfulVerifyResponse = await performRequest(server, {
+      body: JSON.stringify({
+        tweetUrl: 'https://x.com/questtweeter/status/2222222222',
+      }),
+      headers: {
+        'content-type': 'application/json',
+        cookie: sessionCookie ?? '',
+      },
+      method: 'POST',
+      url: '/api/connections/twitter/verify',
+    })
+    const meResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/me',
+    })
+    const deleteResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'DELETE',
+      url: '/api/connections/twitter',
+    })
+    const afterDeleteResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/me',
+    })
+    const walletProfile = await store.getWalletProfile(account.address)
+
+    expect(firstCodeResponse.statusCode).toBe(200)
+    expect(secondCodeResponse.statusCode).toBe(200)
+    expect(firstCode).not.toBe(secondCode)
+    expect(failedVerifyResponse.statusCode).toBe(400)
+    expect(JSON.parse(failedVerifyResponse.body)).toEqual({
+      message: 'Tweet does not contain the current Twitter proof code.',
+    })
+    expect(successfulVerifyResponse.statusCode).toBe(204)
+    expect(JSON.parse(meResponse.body).identities.twitter).toEqual({
+      checkedAt: '2026-03-25T12:00:00.000Z',
+      connected: true,
+      displayName: 'Quest Tweeter',
+      error: null,
+      expiresAt: null,
+      stats: {},
+      status: 'active',
+      userId: 'questtweeter',
+      username: 'questtweeter',
+    })
+    expect(walletProfile?.twitterPendingCode).toBeNull()
+    expect(walletProfile?.twitterPendingCodeExpiresAt).toBeNull()
+    expect(deleteResponse.statusCode).toBe(204)
+    expect(JSON.parse(afterDeleteResponse.body).identities.twitter).toEqual({
+      checkedAt: null,
+      connected: false,
+      displayName: null,
+      error: null,
+      expiresAt: null,
+      stats: {},
+      status: 'disconnected',
+      userId: null,
+      username: null,
+    })
+  })
+
+  it('rejects expired and duplicate Twitter proof verification attempts', async () => {
+    const store = createMemoryStore([
+      {
+        checkedAt: new Date(),
+        createdAt: new Date(),
+        displayName: 'Existing Tweeter',
+        expiresAt: null,
+        lastError: null,
+        provider: 'twitter',
+        providerUserId: 'questtweeter',
+        stats: {},
+        status: 'active',
+        updatedAt: new Date(),
+        username: 'questtweeter',
+        walletAddress: '0x1111111111111111111111111111111111111111',
+      },
+    ])
+    const now = new Date('2026-03-25T12:00:00.000Z').getTime()
+    const twitterDependencies = {
+      fetchProofTweet: vi.fn(async () => ({
+        displayName: 'Quest Tweeter',
+        normalizedTweetUrl: 'https://twitter.com/questtweeter/status/3333333333',
+        text: 'proof duplicate-code',
+        tweetId: '3333333333',
+        username: 'questtweeter',
+      })),
+    }
+    const server = createApiServer(baseConfig, {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      github: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+      },
+      now: () => now,
+      onchain: createOnchainDependencies(),
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      twitter: twitterDependencies,
+      verifyMessage,
+    })
+    const account = privateKeyToAccount(
+      '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
+    )
+
+    const { sessionCookie } = await authenticateWallet(server, account)
+
+    await store.upsertWalletProfile(account.address, {
+      twitterPendingCode: 'expired-code',
+      twitterPendingCodeExpiresAt: new Date(now - 1000),
+      twitterPendingCodeIssuedAt: new Date(now - 10_000),
+    })
+
+    const expiredResponse = await performRequest(server, {
+      body: JSON.stringify({
+        tweetUrl: 'https://x.com/questtweeter/status/3333333333',
+      }),
+      headers: {
+        'content-type': 'application/json',
+        cookie: sessionCookie ?? '',
+      },
+      method: 'POST',
+      url: '/api/connections/twitter/verify',
+    })
+
+    await store.upsertWalletProfile(account.address, {
+      twitterPendingCode: 'duplicate-code',
+      twitterPendingCodeExpiresAt: new Date(now + 5 * 60 * 1000),
+      twitterPendingCodeIssuedAt: new Date(now),
+    })
+
+    const duplicateResponse = await performRequest(server, {
+      body: JSON.stringify({
+        tweetUrl: 'https://x.com/questtweeter/status/3333333333',
+      }),
+      headers: {
+        'content-type': 'application/json',
+        cookie: sessionCookie ?? '',
+      },
+      method: 'POST',
+      url: '/api/connections/twitter/verify',
+    })
+    const walletProfile = await store.getWalletProfile(account.address)
+
+    expect(expiredResponse.statusCode).toBe(400)
+    expect(JSON.parse(expiredResponse.body)).toEqual({
+      message: 'Twitter proof code has expired.',
+    })
+    expect(duplicateResponse.statusCode).toBe(409)
+    expect(JSON.parse(duplicateResponse.body)).toEqual({
+      message: 'Twitter account is already linked to another wallet.',
+    })
+    expect(walletProfile?.twitterPendingCode).toBe('duplicate-code')
   })
 
   it('links Discord through the callback flow and rejects duplicates across wallets', async () => {
@@ -530,6 +833,196 @@ describe('API server', () => {
     )
   })
 
+  it('links GitHub through the callback flow and rejects duplicates across wallets', async () => {
+    const store = createMemoryStore([
+      {
+        checkedAt: new Date(),
+        createdAt: new Date(),
+        displayName: 'Duplicate Quest',
+        encryptedAccessToken: encryptSecret('github-access-token', baseConfig.providerTokenEncryptionSecret),
+        expiresAt: new Date(),
+        githubAccountCreatedAt: new Date('2020-01-01T00:00:00.000Z'),
+        lastError: null,
+        provider: 'github',
+        providerUserId: '999999',
+        scope: 'read:user',
+        stats: {
+          isFollowingTargetOrganization: true,
+          isOlderThanOneYear: true,
+          publicNonForkRepositoryCount: 11,
+          targetOrganization: 'vocdoni',
+          targetRepositories: [
+            {
+              fullName: 'vocdoni/davinciNode',
+              isStarred: true,
+            },
+            {
+              fullName: 'vocdoni/davinciSDK',
+              isStarred: true,
+            },
+          ],
+        },
+        status: 'active',
+        tokenType: 'bearer',
+        updatedAt: new Date(),
+        username: 'duplicatequest',
+        walletAddress: '0x1111111111111111111111111111111111111111',
+      },
+    ])
+    const githubDependencies = {
+      exchangeAuthorizationCode: vi.fn(async () => ({
+        accessToken: 'github-access-token',
+        scope: 'read:user',
+        tokenType: 'bearer',
+      })),
+      fetchUserStats: vi
+        .fn()
+        .mockResolvedValueOnce({
+          accountCreatedAt: '2020-01-01T00:00:00.000Z',
+          displayName: 'Quest Master',
+          isFollowingTargetOrganization: true,
+          isOlderThanOneYear: true,
+          publicNonForkRepositoryCount: 9,
+          targetOrganization: 'vocdoni',
+          targetRepositories: [
+            {
+              fullName: 'vocdoni/davinciNode',
+              isStarred: true,
+            },
+            {
+              fullName: 'vocdoni/davinciSDK',
+              isStarred: false,
+            },
+          ],
+          userId: '123456',
+          username: 'questmaster',
+        })
+        .mockResolvedValueOnce({
+          accountCreatedAt: '2020-01-01T00:00:00.000Z',
+          displayName: 'Duplicate Quest',
+          isFollowingTargetOrganization: false,
+          isOlderThanOneYear: true,
+          publicNonForkRepositoryCount: 11,
+          targetOrganization: 'vocdoni',
+          targetRepositories: [
+            {
+              fullName: 'vocdoni/davinciNode',
+              isStarred: false,
+            },
+            {
+              fullName: 'vocdoni/davinciSDK',
+              isStarred: true,
+            },
+          ],
+          userId: '999999',
+          username: 'duplicatequest',
+        }),
+    }
+    const server = createApiServer(baseConfig, {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      github: githubDependencies,
+      now: () => 1_500_000,
+      onchain: createOnchainDependencies(),
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    })
+    const account = privateKeyToAccount(
+      '0x8b3a350cf5c34c9194ca85829d61cb0c34b6edafebc11c71cb1a7d3f0f7ebf14',
+    )
+
+    const { sessionCookie } = await authenticateWallet(server, account)
+    const startResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/connections/github/start',
+    })
+    const state = new URL(startResponse.getHeader('location')).searchParams.get('state')
+
+    const callbackResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: `/api/connections/github/callback?code=oauth-code&state=${encodeURIComponent(state ?? '')}`,
+    })
+    const meResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/me',
+    })
+    const duplicateStartResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/connections/github/start',
+    })
+    const duplicateState = new URL(duplicateStartResponse.getHeader('location')).searchParams.get(
+      'state',
+    )
+    const duplicateResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: `/api/connections/github/callback?code=oauth-code&state=${encodeURIComponent(duplicateState ?? '')}`,
+    })
+
+    expect(callbackResponse.statusCode).toBe(302)
+    expect(callbackResponse.getHeader('location')).toContain('link_provider=github')
+    expect(callbackResponse.getHeader('location')).toContain('link_status=success')
+    expect(githubDependencies.fetchUserStats).toHaveBeenNthCalledWith(1, {
+      accessToken: 'github-access-token',
+      targetOrganization: 'vocdoni',
+      targetRepositories: baseConfig.github.targetRepositories,
+    })
+    expect(githubDependencies.fetchUserStats).toHaveBeenNthCalledWith(2, {
+      accessToken: 'github-access-token',
+      targetOrganization: 'vocdoni',
+      targetRepositories: baseConfig.github.targetRepositories,
+    })
+    expect(JSON.parse(meResponse.body).identities.github).toMatchObject({
+      connected: true,
+      displayName: 'Quest Master',
+      stats: {
+        isFollowingTargetOrganization: true,
+        isOlderThanOneYear: true,
+        publicNonForkRepositoryCount: 9,
+        targetOrganization: 'vocdoni',
+        targetRepositories: [
+          {
+            fullName: 'vocdoni/davinciNode',
+            isStarred: true,
+          },
+          {
+            fullName: 'vocdoni/davinciSDK',
+            isStarred: false,
+          },
+        ],
+      },
+      userId: '123456',
+      username: 'questmaster',
+    })
+    expect(duplicateResponse.statusCode).toBe(302)
+    expect(duplicateResponse.getHeader('location')).toContain(
+      'GitHub+account+is+already+linked+to+another+wallet.',
+    )
+  })
+
   it('refreshes stale Discord stats during /api/me', async () => {
     const account = privateKeyToAccount(
       '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
@@ -605,6 +1098,164 @@ describe('API server', () => {
       displayName: 'Quest Master',
       stats: {
         isInTargetServer: true,
+      },
+      username: 'questmaster',
+    })
+  })
+
+  it('refreshes stale GitHub stats during /api/me and preserves cached data on refresh failure', async () => {
+    const account = privateKeyToAccount(
+      '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
+    )
+    const store = createMemoryStore([
+      {
+        checkedAt: new Date('2026-03-23T00:00:00.000Z'),
+        createdAt: new Date('2026-03-23T00:00:00.000Z'),
+        displayName: 'Old Quest Master',
+        encryptedAccessToken: encryptSecret('old-github-access', baseConfig.providerTokenEncryptionSecret),
+        expiresAt: new Date('2026-03-23T12:00:00.000Z'),
+        githubAccountCreatedAt: new Date('2020-01-01T00:00:00.000Z'),
+        lastError: null,
+        provider: 'github',
+        providerUserId: '123456',
+        scope: 'read:user',
+        stats: {
+          isFollowingTargetOrganization: true,
+          isOlderThanOneYear: true,
+          publicNonForkRepositoryCount: 4,
+          targetOrganization: 'vocdoni',
+          targetRepositories: [
+            {
+              fullName: 'vocdoni/davinciNode',
+              isStarred: true,
+            },
+            {
+              fullName: 'vocdoni/davinciSDK',
+              isStarred: false,
+            },
+          ],
+        },
+        status: 'active',
+        tokenType: 'bearer',
+        updatedAt: new Date('2026-03-23T00:00:00.000Z'),
+        username: 'oldquestmaster',
+        walletAddress: account.address,
+      },
+    ])
+    const dependencies = {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      github: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi
+          .fn()
+          .mockResolvedValueOnce({
+            accountCreatedAt: '2020-01-01T00:00:00.000Z',
+            displayName: 'Quest Master',
+            isFollowingTargetOrganization: true,
+            isOlderThanOneYear: true,
+            publicNonForkRepositoryCount: 9,
+            targetOrganization: 'vocdoni',
+            targetRepositories: [
+              {
+                fullName: 'vocdoni/davinciNode',
+                isStarred: true,
+              },
+              {
+                fullName: 'vocdoni/davinciSDK',
+                isStarred: true,
+              },
+            ],
+            userId: '123456',
+            username: 'questmaster',
+          })
+          .mockRejectedValueOnce(new Error('GitHub API rate limited.')),
+      },
+      now: () => new Date('2026-03-24T18:00:00.000Z').getTime(),
+      onchain: createOnchainDependencies(),
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    }
+    const server = createApiServer(baseConfig, dependencies)
+    const { sessionCookie } = await authenticateWallet(server, account)
+
+    const firstMeResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/me',
+    })
+
+    await store.upsertIdentityLink(account.address, 'github', {
+      expiresAt: new Date('2026-03-24T17:00:00.000Z'),
+    })
+
+    const secondMeResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/me',
+    })
+
+    expect(dependencies.github.fetchUserStats).toHaveBeenNthCalledWith(1, {
+      accessToken: 'old-github-access',
+      targetOrganization: 'vocdoni',
+      targetRepositories: baseConfig.github.targetRepositories,
+    })
+    expect(dependencies.github.fetchUserStats).toHaveBeenNthCalledWith(2, {
+      accessToken: 'old-github-access',
+      targetOrganization: 'vocdoni',
+      targetRepositories: baseConfig.github.targetRepositories,
+    })
+    expect(JSON.parse(firstMeResponse.body).identities.github).toMatchObject({
+      displayName: 'Quest Master',
+      error: null,
+      stats: {
+        isFollowingTargetOrganization: true,
+        isOlderThanOneYear: true,
+        publicNonForkRepositoryCount: 9,
+        targetOrganization: 'vocdoni',
+        targetRepositories: [
+          {
+            fullName: 'vocdoni/davinciNode',
+            isStarred: true,
+          },
+          {
+            fullName: 'vocdoni/davinciSDK',
+            isStarred: true,
+          },
+        ],
+      },
+      username: 'questmaster',
+    })
+    expect(JSON.parse(secondMeResponse.body).identities.github).toMatchObject({
+      error: 'GitHub API rate limited.',
+      stats: {
+        isFollowingTargetOrganization: true,
+        isOlderThanOneYear: true,
+        publicNonForkRepositoryCount: 9,
+        targetOrganization: 'vocdoni',
+        targetRepositories: [
+          {
+            fullName: 'vocdoni/davinciNode',
+            isStarred: true,
+          },
+          {
+            fullName: 'vocdoni/davinciSDK',
+            isStarred: true,
+          },
+        ],
       },
       username: 'questmaster',
     })

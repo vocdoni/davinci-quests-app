@@ -258,6 +258,49 @@ export function verifyDiscordStateToken(token, secret, now = Date.now()) {
   }
 }
 
+export function createGitHubStateToken(
+  {
+    walletAddress,
+  },
+  secret,
+  now = Date.now(),
+) {
+  const issuedAt = Math.floor(now / 1000)
+
+  return createSignedToken(
+    {
+      exp: issuedAt + CHALLENGE_TTL_SECONDS,
+      iat: issuedAt,
+      provider: 'github',
+      wallet_address: walletAddress,
+    },
+    secret,
+  )
+}
+
+export function verifyGitHubStateToken(token, secret, now = Date.now()) {
+  const payload = verifySignedToken(token, secret, 'GitHub state is invalid.')
+
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    typeof payload.exp !== 'number' ||
+    typeof payload.iat !== 'number' ||
+    payload.provider !== 'github' ||
+    typeof payload.wallet_address !== 'string'
+  ) {
+    throw new Error('GitHub state is invalid.')
+  }
+
+  if (payload.exp <= Math.floor(now / 1000)) {
+    throw new Error('GitHub state has expired.')
+  }
+
+  return {
+    walletAddress: payload.wallet_address,
+  }
+}
+
 function deriveEncryptionKey(secret) {
   return createHash('sha256').update(secret).digest()
 }

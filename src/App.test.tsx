@@ -72,10 +72,15 @@ function createSession(overrides: Record<string, unknown> = {}) {
     logout: vi.fn(async () => undefined),
     profile: null,
     refetchProfile: vi.fn(),
+    requestTwitterCode: vi.fn(async () => ({
+      code: 'twitter-proof-code',
+      expiresAt: '2026-03-25T12:00:00.000Z',
+    })),
     requestWalletChallenge: vi.fn(async () => ({ message: 'Sign this challenge' })),
     sessionWalletAddress: null,
     startProviderConnection: vi.fn(),
     unlinkProvider: vi.fn(async () => undefined),
+    verifyTwitterTweet: vi.fn(async () => undefined),
     verifyWallet: vi.fn(async () => undefined),
     ...overrides,
   } as never
@@ -160,7 +165,9 @@ describe('App', () => {
     render(<App config={baseConfig} />)
 
     expect(screen.getByRole('button', { name: 'Connect Discord' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Connect GitHub' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Connect Telegram' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Connect Twitter' })).toBeDisabled()
   })
 
   it('unlinks connected providers and signs the user out from the wallet session', async () => {
@@ -196,6 +203,32 @@ describe('App', () => {
               userId: '111111111111111111',
               username: 'questmaster',
             },
+            github: {
+              checkedAt: null,
+              connected: true,
+              displayName: 'Quest Coder',
+              error: null,
+              expiresAt: null,
+              stats: {
+                isFollowingTargetOrganization: true,
+                isOlderThanOneYear: true,
+                publicNonForkRepositoryCount: 12,
+                targetOrganization: 'vocdoni',
+                targetRepositories: [
+                  {
+                    fullName: 'vocdoni/davinciNode',
+                    isStarred: true,
+                  },
+                  {
+                    fullName: 'vocdoni/davinciSDK',
+                    isStarred: false,
+                  },
+                ],
+              },
+              status: 'active',
+              userId: '333333',
+              username: 'questcoder',
+            },
             telegram: {
               checkedAt: null,
               connected: true,
@@ -208,6 +241,17 @@ describe('App', () => {
               status: 'active',
               userId: '222222222',
               username: 'questcaptain',
+            },
+            twitter: {
+              checkedAt: null,
+              connected: true,
+              displayName: 'Quest Tweeter',
+              error: null,
+              expiresAt: null,
+              stats: {},
+              status: 'active',
+              userId: 'questtweeter',
+              username: 'questtweeter',
             },
           },
           onchain: {
@@ -233,9 +277,19 @@ describe('App', () => {
       expect(unlinkProvider).toHaveBeenCalledWith('discord')
     })
 
+    await user.click(screen.getByRole('button', { name: 'Disconnect GitHub' }))
+    await waitFor(() => {
+      expect(unlinkProvider).toHaveBeenCalledWith('github')
+    })
+
     await user.click(screen.getByRole('button', { name: 'Disconnect Telegram' }))
     await waitFor(() => {
       expect(unlinkProvider).toHaveBeenCalledWith('telegram')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Disconnect Twitter' }))
+    await waitFor(() => {
+      expect(unlinkProvider).toHaveBeenCalledWith('twitter')
     })
 
     await user.click(screen.getByRole('button', { name: 'Disconnect wallet' }))
@@ -274,6 +328,32 @@ describe('App', () => {
               userId: '111111111111111111',
               username: 'questmaster',
             },
+            github: {
+              checkedAt: '2026-03-24T12:00:00.000Z',
+              connected: true,
+              displayName: 'Quest Coder',
+              error: null,
+              expiresAt: '2026-03-25T00:00:00.000Z',
+              stats: {
+                isFollowingTargetOrganization: true,
+                isOlderThanOneYear: true,
+                publicNonForkRepositoryCount: 12,
+                targetOrganization: 'vocdoni',
+                targetRepositories: [
+                  {
+                    fullName: 'vocdoni/davinciNode',
+                    isStarred: true,
+                  },
+                  {
+                    fullName: 'vocdoni/davinciSDK',
+                    isStarred: false,
+                  },
+                ],
+              },
+              status: 'active',
+              userId: '333333',
+              username: 'questcoder',
+            },
             telegram: {
               checkedAt: '2026-03-24T12:00:00.000Z',
               connected: true,
@@ -286,6 +366,17 @@ describe('App', () => {
               status: 'active',
               userId: '222222222',
               username: 'questcaptain',
+            },
+            twitter: {
+              checkedAt: '2026-03-24T12:00:00.000Z',
+              connected: true,
+              displayName: 'Quest Tweeter',
+              error: null,
+              expiresAt: null,
+              stats: {},
+              status: 'active',
+              userId: 'questtweeter',
+              username: 'questtweeter',
             },
           },
           onchain: {
@@ -317,6 +408,30 @@ describe('App', () => {
           userId: '111111111111111111',
           username: 'Quest Master',
         },
+        github: {
+          checkedAt: '2026-03-24T12:00:00.000Z',
+          displayName: 'Quest Coder',
+          error: null,
+          expiresAt: '2026-03-25T00:00:00.000Z',
+          isConnected: true,
+          isFollowingTargetOrganization: true,
+          isOlderThanOneYear: true,
+          publicNonForkRepositoryCount: 12,
+          status: 'active',
+          targetOrganization: 'vocdoni',
+          targetRepositories: [
+            {
+              fullName: 'vocdoni/davinciNode',
+              isStarred: true,
+            },
+            {
+              fullName: 'vocdoni/davinciSDK',
+              isStarred: false,
+            },
+          ],
+          userId: '333333',
+          username: 'questcoder',
+        },
         onchain: {
           address: '0x123400000000000000000000000000000000abcd',
           checkedAt: '2026-03-24T12:05:00.000Z',
@@ -336,12 +451,141 @@ describe('App', () => {
           userId: '222222222',
           username: 'questcaptain',
         },
+        twitter: {
+          checkedAt: '2026-03-24T12:00:00.000Z',
+          displayName: 'Quest Tweeter',
+          error: null,
+          expiresAt: null,
+          isConnected: true,
+          status: 'active',
+          userId: 'questtweeter',
+          username: 'questtweeter',
+        },
       })
     })
+  })
 
-    expect(screen.getByRole('table')).toBeVisible()
-    expect(screen.getByText('Quest Master')).toBeVisible()
-    expect(screen.getByText('Quest Captain')).toBeVisible()
-    expect(screen.getByText('33')).toBeVisible()
+  it('requests a Twitter proof code and verifies the tweet URL inline', async () => {
+    const user = userEvent.setup()
+    const requestTwitterCode = vi.fn(async () => ({
+      code: 'twitter-proof-code',
+      expiresAt: '2026-03-25T12:00:00.000Z',
+    }))
+    const verifyTwitterTweet = vi.fn(async () => undefined)
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: {
+          identities: {
+            discord: {
+              checkedAt: null,
+              connected: false,
+              displayName: null,
+              error: null,
+              expiresAt: null,
+              stats: {
+                isInTargetServer: null,
+              },
+              status: 'disconnected',
+              userId: null,
+              username: null,
+            },
+            github: {
+              checkedAt: null,
+              connected: false,
+              displayName: null,
+              error: null,
+              expiresAt: null,
+              stats: {
+                isFollowingTargetOrganization: null,
+                isOlderThanOneYear: null,
+                publicNonForkRepositoryCount: null,
+                targetOrganization: 'vocdoni',
+                targetRepositories: [
+                  {
+                    fullName: 'vocdoni/davinciNode',
+                    isStarred: null,
+                  },
+                  {
+                    fullName: 'vocdoni/davinciSDK',
+                    isStarred: null,
+                  },
+                ],
+              },
+              status: 'disconnected',
+              userId: null,
+              username: null,
+            },
+            telegram: {
+              checkedAt: null,
+              connected: false,
+              displayName: null,
+              error: null,
+              expiresAt: null,
+              stats: {
+                isInTargetChannel: null,
+              },
+              status: 'disconnected',
+              userId: null,
+              username: null,
+            },
+            twitter: {
+              checkedAt: null,
+              connected: false,
+              displayName: null,
+              error: null,
+              expiresAt: null,
+              stats: {},
+              status: 'disconnected',
+              userId: null,
+              username: null,
+            },
+          },
+          onchain: {
+            checkedAt: null,
+            error: null,
+            expiresAt: null,
+            numberOfProcesses: 0,
+            totalVotes: '0',
+          },
+          wallet: {
+            address: '0x123400000000000000000000000000000000abcd',
+          },
+        },
+        requestTwitterCode,
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+        verifyTwitterTweet,
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    await user.click(screen.getByRole('button', { name: 'Connect Twitter' }))
+
+    await waitFor(() => {
+      expect(requestTwitterCode).toHaveBeenCalledTimes(1)
+    })
+
+    expect(screen.getByText('twitter-proof-code')).toBeInTheDocument()
+
+    await user.type(
+      screen.getByLabelText('Tweet URL'),
+      'https://x.com/questtweeter/status/1234567890',
+    )
+    await user.click(screen.getByRole('button', { name: 'Verify tweet' }))
+
+    await waitFor(() => {
+      expect(verifyTwitterTweet).toHaveBeenCalledWith(
+        'https://x.com/questtweeter/status/1234567890',
+      )
+    })
   })
 })

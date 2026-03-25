@@ -11,6 +11,11 @@ function createEnv(overrides = {}) {
     DISCORD_GUILD_ID: '987654321098765432',
     DISCORD_REDIRECT_URI: 'https://api.example.org/api/connections/discord/callback',
     FRONTEND_APP_URL: 'https://app.example.org',
+    GITHUB_CLIENT_ID: 'github-client-id',
+    GITHUB_CLIENT_SECRET: 'github-client-secret',
+    GITHUB_REDIRECT_URI: 'https://api.example.org/api/connections/github/callback',
+    GITHUB_TARGET_ORGANIZATION: 'vocdoni',
+    GITHUB_TARGET_REPOSITORIES: 'vocdoni/davinciNode,vocdoni/davinciSDK',
     MONGODB_DB_NAME: 'quests-dashboard',
     MONGODB_URI: 'mongodb://mongo:27017/quests-dashboard',
     ONCHAIN_PROCESS_REGISTRY_ADDRESS: '0x0000000000000000000000000000000000000001',
@@ -41,6 +46,24 @@ describe('parseServerConfig', () => {
       },
       frontendAppUrl: 'https://app.example.org/',
       frontendOrigin: 'https://app.example.org',
+      github: {
+        clientId: 'github-client-id',
+        clientSecret: 'github-client-secret',
+        redirectUri: 'https://api.example.org/api/connections/github/callback',
+        targetOrganization: 'vocdoni',
+        targetRepositories: [
+          {
+            fullName: 'vocdoni/davinciNode',
+            name: 'davinciNode',
+            owner: 'vocdoni',
+          },
+          {
+            fullName: 'vocdoni/davinciSDK',
+            name: 'davinciSDK',
+            owner: 'vocdoni',
+          },
+        ],
+      },
       mongo: {
         dbName: 'quests-dashboard',
         uri: 'mongodb://mongo:27017/quests-dashboard',
@@ -65,7 +88,7 @@ describe('parseServerConfig', () => {
 
   it('reports all missing backend variables together', () => {
     expect(() => parseServerConfig({})).toThrow(
-      'Missing required environment variables: APP_SESSION_SECRET, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI, FRONTEND_APP_URL, MONGODB_DB_NAME, MONGODB_URI, ONCHAIN_PROCESS_REGISTRY_ADDRESS, ONCHAIN_PROCESS_REGISTRY_START_BLOCK, ONCHAIN_RPC_URL, PROVIDER_TOKEN_ENCRYPTION_SECRET, TELEGRAM_APP_JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_USERNAME, TELEGRAM_CLIENT_ID, TELEGRAM_CLIENT_SECRET, TELEGRAM_REDIRECT_URI',
+      'Missing required environment variables: APP_SESSION_SECRET, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI, FRONTEND_APP_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI, GITHUB_TARGET_ORGANIZATION, GITHUB_TARGET_REPOSITORIES, MONGODB_DB_NAME, MONGODB_URI, ONCHAIN_PROCESS_REGISTRY_ADDRESS, ONCHAIN_PROCESS_REGISTRY_START_BLOCK, ONCHAIN_RPC_URL, PROVIDER_TOKEN_ENCRYPTION_SECRET, TELEGRAM_APP_JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_USERNAME, TELEGRAM_CLIENT_ID, TELEGRAM_CLIENT_SECRET, TELEGRAM_REDIRECT_URI',
     )
   })
 })
