@@ -202,9 +202,6 @@ export function parseServerConfig(env = process.env) {
           0,
         ),
       ),
-      statsTtlSeconds: env.ONCHAIN_STATS_TTL_SECONDS
-        ? parseInteger('ONCHAIN_STATS_TTL_SECONDS', env.ONCHAIN_STATS_TTL_SECONDS, 60)
-        : 300,
     },
     port: env.PORT ? parseInteger('PORT', env.PORT, 1) : 3001,
     providerTokenEncryptionSecret: requireString(

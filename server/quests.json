@@ -1,0 +1,27 @@
+{
+  "builders": [
+    {
+      "id": 1,
+      "title": "Star the Davinci Node repo on GitHub",
+      "description": "Enjoying Davinci Node? Star the repository on GitHub to support the project and help more developers discover it.",
+      "points": 320,
+      "achievement": "github.targetRepositories[0].isStarred == true"
+    },
+    {
+      "id": 2,
+      "title": "Star the Davinci SDK repo on GitHub",
+      "description": "Want to build with Davinci? Explore our SDK, star the repository on GitHub, and start creating something great on the protocol.",
+      "points": 420,
+      "achievement": "github.targetRepositories[1].isStarred == true"
+    }
+  ],
+  "supporters": [
+    {
+      "id": 1,
+      "title": "Join the Vocdoni Discord server",
+      "description": "Join the Vocdoni Discord server to connect with the community, stay up to date, and get support when you need it.",
+      "points": 100,
+      "achievement": "discord.isInTargetServer == true"
+    }
+  ]
+}

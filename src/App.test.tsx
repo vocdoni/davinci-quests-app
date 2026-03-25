@@ -1,10 +1,13 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type { AppConfig } from './config'
+import { useQuests } from './hooks/useQuests'
+import type { AppProfile } from './hooks/useAppSession'
 import { useAppSession } from './hooks/useAppSession'
 import { useWalletConnection } from './hooks/useWalletConnection'
+import type { QuestCatalog } from './lib/quests'
 
 vi.mock('./hooks/useWalletConnection', () => ({
   useWalletConnection: vi.fn(),
@@ -14,8 +17,17 @@ vi.mock('./hooks/useAppSession', () => ({
   useAppSession: vi.fn(),
 }))
 
+vi.mock('./hooks/useQuests', () => ({
+  useQuests: vi.fn(),
+}))
+
 const mockedUseWalletConnection = vi.mocked(useWalletConnection)
 const mockedUseAppSession = vi.mocked(useAppSession)
+const mockedUseQuests = vi.mocked(useQuests)
+
+type WalletConnectionState = ReturnType<typeof useWalletConnection>
+type SessionState = ReturnType<typeof useAppSession>
+type QuestsState = ReturnType<typeof useQuests>
 
 const baseConfig: AppConfig = {
   apiBaseUrl: 'https://api.example.org',
@@ -33,7 +45,9 @@ const baseConfig: AppConfig = {
   walletConnectProjectId: 'project-id',
 }
 
-function createWalletConnection(overrides: Record<string, unknown> = {}) {
+function createWalletConnection(
+  overrides: Record<string, unknown> = {},
+): WalletConnectionState {
   return {
     activeConnectorName: null,
     address: undefined,
@@ -52,16 +66,109 @@ function createWalletConnection(overrides: Record<string, unknown> = {}) {
     primaryConnectorName: 'WalletConnect',
     requestSwitch: vi.fn(),
     signError: null,
-    signMessage: vi.fn(async () => '0xsigned'),
+    signMessage: vi.fn(async (): Promise<`0x${string}`> => '0xsigned'),
     switchError: null,
     targetChain: {
       name: 'Polygon',
     },
     ...overrides,
-  } as never
+  } as unknown as WalletConnectionState
 }
 
-function createSession(overrides: Record<string, unknown> = {}) {
+function createProfile(
+  overrides: Partial<Omit<AppProfile, 'identities' | 'onchain' | 'wallet'>> & {
+    identities?: Partial<AppProfile['identities']>
+    onchain?: Partial<AppProfile['onchain']>
+    wallet?: Partial<AppProfile['wallet']>
+  } = {},
+): AppProfile {
+  const baseProfile: AppProfile = {
+    identities: {
+      discord: {
+        connected: false,
+        displayName: null,
+        error: null,
+        stats: {
+          isInTargetServer: null,
+        },
+        status: 'disconnected',
+        userId: null,
+        username: null,
+      },
+      github: {
+        connected: false,
+        displayName: null,
+        error: null,
+        stats: {
+          isFollowingTargetOrganization: null,
+          isOlderThanOneYear: null,
+          publicNonForkRepositoryCount: null,
+          targetOrganization: 'vocdoni',
+          targetRepositories: [
+            {
+              fullName: 'vocdoni/davinciNode',
+              isStarred: null,
+            },
+            {
+              fullName: 'vocdoni/davinciSDK',
+              isStarred: null,
+            },
+          ],
+        },
+        status: 'disconnected',
+        userId: null,
+        username: null,
+      },
+      telegram: {
+        connected: false,
+        displayName: null,
+        error: null,
+        stats: {
+          isInTargetChannel: null,
+        },
+        status: 'disconnected',
+        userId: null,
+        username: null,
+      },
+      twitter: {
+        connected: false,
+        displayName: null,
+        error: null,
+        stats: {},
+        status: 'disconnected',
+        userId: null,
+        username: null,
+      },
+    },
+    onchain: {
+      error: null,
+      numberOfProcesses: 0,
+      totalVotes: '0',
+    },
+    wallet: {
+      address: '0x123400000000000000000000000000000000abcd',
+    },
+  }
+
+  return {
+    ...baseProfile,
+    ...overrides,
+    identities: {
+      ...baseProfile.identities,
+      ...overrides.identities,
+    },
+    onchain: {
+      ...baseProfile.onchain,
+      ...overrides.onchain,
+    },
+    wallet: {
+      ...baseProfile.wallet,
+      ...overrides.wallet,
+    },
+  }
+}
+
+function createSession(overrides: Record<string, unknown> = {}): SessionState {
   return {
     clearLinkFeedback: vi.fn(),
     error: null,
@@ -83,12 +190,64 @@ function createSession(overrides: Record<string, unknown> = {}) {
     verifyTwitterTweet: vi.fn(async () => undefined),
     verifyWallet: vi.fn(async () => undefined),
     ...overrides,
-  } as never
+  } as SessionState
+}
+
+function createQuestCatalog(
+  overrides: Partial<QuestCatalog> = {},
+): QuestCatalog {
+  return {
+    builders: [
+      {
+        achievement: 'github.targetRepositories[0].isStarred == true',
+        description: 'Builder quest description',
+        id: 1,
+        points: 320,
+        title: 'Star the Davinci Node repo on GitHub',
+      },
+      {
+        achievement: 'github.targetRepositories[1].isStarred == true',
+        description: 'Second builder quest description',
+        id: 2,
+        points: 420,
+        title: 'Star the Davinci SDK repo on GitHub',
+      },
+    ],
+    supporters: [
+      {
+        achievement: 'discord.isInTargetServer == true',
+        description: 'Supporter quest description',
+        id: 1,
+        points: 100,
+        title: 'Join the Vocdoni Discord server',
+      },
+    ],
+    ...overrides,
+  }
+}
+
+function createQuestsState(overrides: Record<string, unknown> = {}): QuestsState {
+  return {
+    data: createQuestCatalog(),
+    error: null,
+    isError: false,
+    isFetched: true,
+    isFetching: false,
+    isLoading: false,
+    isPending: false,
+    isSuccess: true,
+    refetch: vi.fn(),
+    ...overrides,
+  } as unknown as QuestsState
 }
 
 beforeEach(() => {
   mockedUseWalletConnection.mockReset()
   mockedUseAppSession.mockReset()
+  mockedUseQuests.mockReset()
+  mockedUseQuests.mockReturnValue(createQuestsState())
+  window.history.replaceState(null, '', '/')
+  vi.spyOn(console, 'log').mockImplementation(() => {})
 })
 
 afterEach(() => {
@@ -97,48 +256,38 @@ afterEach(() => {
 })
 
 describe('App', () => {
-  it('connects the wallet when no wallet is connected', async () => {
+  it('uses the navbar login button to connect first and then finish wallet sign-in', async () => {
     const user = userEvent.setup()
-    const connectPrimaryWallet = vi.fn()
-
-    mockedUseWalletConnection.mockReturnValue(
-      createWalletConnection({ connectPrimaryWallet }),
-    )
-    mockedUseAppSession.mockReturnValue(createSession())
-
-    render(<App config={baseConfig} />)
-
-    await user.click(screen.getByRole('button', { name: 'Connect wallet' }))
-
-    expect(connectPrimaryWallet).toHaveBeenCalledTimes(1)
-  })
-
-  it('signs in with the connected wallet before loading provider actions', async () => {
-    const user = userEvent.setup()
-    const signMessage = vi.fn(async () => '0xsigned')
+    const connectPrimaryWallet = vi.fn(async () => undefined)
+    const signMessage = vi.fn(async (): Promise<`0x${string}`> => '0xsigned')
     const requestWalletChallenge = vi.fn(async () => ({
       message: 'Sign this challenge',
     }))
     const verifyWallet = vi.fn(async () => undefined)
 
-    mockedUseWalletConnection.mockReturnValue(
-      createWalletConnection({
-        address: '0x123400000000000000000000000000000000abcd',
-        connectors: [],
-        isConnected: true,
-        signMessage,
-      }),
-    )
-    mockedUseAppSession.mockReturnValue(
-      createSession({
-        requestWalletChallenge,
-        verifyWallet,
-      }),
-    )
+    const walletState = createWalletConnection({
+      connectPrimaryWallet,
+    })
+    const sessionState = createSession({
+      requestWalletChallenge,
+      verifyWallet,
+    })
 
-    render(<App config={baseConfig} />)
+    mockedUseWalletConnection.mockImplementation(() => walletState)
+    mockedUseAppSession.mockImplementation(() => sessionState)
 
-    await user.click(screen.getByRole('button', { name: 'Sign in with wallet' }))
+    const { rerender } = render(<App config={baseConfig} />)
+
+    await user.click(screen.getByRole('button', { name: 'Login' }))
+
+    expect(connectPrimaryWallet).toHaveBeenCalledTimes(1)
+
+    walletState.address = '0x123400000000000000000000000000000000abcd'
+    walletState.connectors = []
+    walletState.isConnected = true
+    walletState.signMessage = signMessage
+
+    rerender(<App config={baseConfig} />)
 
     await waitFor(() => {
       expect(requestWalletChallenge).toHaveBeenCalledWith(
@@ -152,7 +301,257 @@ describe('App', () => {
     })
   })
 
-  it('keeps provider buttons disabled until the wallet session is authenticated', () => {
+  it('keeps the server session data available when the wallet is disconnected on reload', () => {
+    const logout = vi.fn(async () => undefined)
+
+    mockedUseWalletConnection.mockReturnValue(createWalletConnection())
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: false,
+        logout,
+        profile: createProfile({
+          identities: {
+            discord: {
+              connected: true,
+              displayName: 'Quest Master',
+              error: null,
+              stats: {
+                isInTargetServer: true,
+              },
+              status: 'active',
+              userId: '111111111111111111',
+              username: 'questmaster',
+            },
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    expect(logout).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole('heading', { name: 'Join the Vocdoni Discord server' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Completed')).toBeInTheDocument()
+  })
+
+  it('shows the trimmed address in the navbar and routes to the profile page on click', async () => {
+    const user = userEvent.setup()
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile(),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    const profileButton = screen.getByRole('button', { name: '0x1234...abcd' })
+    await user.hover(profileButton)
+
+    await user.click(screen.getByRole('button', { name: 'Go to my profile' }))
+
+    expect(screen.getByRole('heading', { name: 'My profile' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/profile')
+  })
+
+  it('capitalizes the provider name in the link banner and auto-dismisses it after 5 seconds', () => {
+    vi.useFakeTimers()
+
+    const clearLinkFeedback = vi.fn()
+
+    mockedUseWalletConnection.mockReturnValue(createWalletConnection())
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        clearLinkFeedback,
+        linkFeedback: {
+          error: null,
+          provider: 'github',
+          status: 'success',
+        },
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    expect(screen.getByText('GitHub linked successfully.')).toBeInTheDocument()
+
+    act(() => {
+      vi.advanceTimersByTime(5000)
+    })
+
+    expect(clearLinkFeedback).toHaveBeenCalledTimes(1)
+    vi.useRealTimers()
+  })
+
+  it('uses quests as the root page and shows supporter quests by default', () => {
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(createSession())
+
+    render(<App config={baseConfig} />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Complete quests and earn points.' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Supporters/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.getByRole('tab', { name: /Builders/ })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    )
+    expect(
+      screen.queryByRole('heading', { name: 'Star the Davinci Node repo on GitHub' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Join the Vocdoni Discord server' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'About' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Quests' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'Leaderboard' })).toHaveAttribute(
+      'href',
+      '/leaderboard',
+    )
+    expect(screen.getByRole('link', { name: 'Rules' })).toHaveAttribute('href', '/rules')
+    expect(screen.getByRole('link', { name: 'FAQ' })).toHaveAttribute('href', '/faq')
+    expect(
+      screen.queryByRole('button', { name: 'Connect Discord' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Connect GitHub' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('lets users preview builder quests before GitHub is connected', async () => {
+    const user = userEvent.setup()
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(createSession())
+
+    render(<App config={baseConfig} />)
+
+    await user.click(screen.getByRole('tab', { name: /Builders/ }))
+
+    expect(screen.getByRole('tab', { name: /Builders/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(
+      screen.getByRole('heading', { name: 'Star the Davinci Node repo on GitHub' }),
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('Locked').length).toBeGreaterThan(0)
+    expect(
+      screen.getByText('Connect your GitHub account from your profile to unlock progress tracking.'),
+    ).toBeInTheDocument()
+  })
+
+  it('offers a profile shortcut from the locked builder card', async () => {
+    const user = userEvent.setup()
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(createSession())
+
+    render(<App config={baseConfig} />)
+
+    await user.click(screen.getByRole('button', { name: 'Go to profile' }))
+
+    expect(screen.getByRole('heading', { name: 'My profile' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/profile')
+  })
+
+  it('unlocks builder quests when GitHub is connected', async () => {
+    const user = userEvent.setup()
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile({
+          identities: {
+            github: {
+              connected: true,
+              displayName: 'Quest Coder',
+              error: null,
+              stats: {
+                isFollowingTargetOrganization: true,
+                isOlderThanOneYear: true,
+                publicNonForkRepositoryCount: 12,
+                targetOrganization: 'vocdoni',
+                targetRepositories: [
+                  {
+                    fullName: 'vocdoni/davinciNode',
+                    isStarred: true,
+                  },
+                  {
+                    fullName: 'vocdoni/davinciSDK',
+                    isStarred: false,
+                  },
+                ],
+              },
+              status: 'active',
+              userId: '333333',
+              username: 'questcoder',
+            },
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    const buildersButton = screen.getByRole('tab', { name: /Builders/ })
+    expect(buildersButton).toBeEnabled()
+
+    await user.click(buildersButton)
+
+    expect(buildersButton).toHaveAttribute('aria-selected', 'true')
+    expect(
+      screen.getByRole('heading', { name: 'Star the Davinci Node repo on GitHub' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Completed')).toBeInTheDocument()
+  })
+
+  it('shows provider buttons on the profile page and keeps them disabled until the wallet session is authenticated', () => {
+    window.history.replaceState(null, '', '/profile')
+
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({
         address: '0x123400000000000000000000000000000000abcd',
@@ -167,10 +566,139 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Connect Discord' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Connect GitHub' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Connect Telegram' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Connect Twitter' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Connect X' })).toBeDisabled()
   })
 
-  it('unlinks connected providers and signs the user out from the wallet session', async () => {
+  it('locks an OAuth connect button into a connecting state after click', async () => {
+    window.history.replaceState(null, '', '/profile')
+
+    const user = userEvent.setup()
+    const startProviderConnection = vi.fn()
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile(),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+        startProviderConnection,
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    await user.click(screen.getByRole('button', { name: 'Connect Discord' }))
+
+    expect(startProviderConnection).toHaveBeenCalledWith('discord')
+    expect(screen.getByRole('button', { name: 'Connecting...' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Connect GitHub' })).toBeDisabled()
+  })
+
+  it('renders the simplified profile connections with the signed address chip', () => {
+    window.history.replaceState(null, '', '/profile')
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile({
+          identities: {
+            discord: {
+              connected: true,
+              displayName: 'Quest Master',
+              error: null,
+              stats: {
+                isInTargetServer: true,
+              },
+              status: 'active',
+              userId: '111111111111111111',
+              username: 'questmaster',
+            },
+            github: {
+              connected: true,
+              displayName: 'Quest Coder',
+              error: null,
+              stats: {
+                isFollowingTargetOrganization: true,
+                isOlderThanOneYear: true,
+                publicNonForkRepositoryCount: 12,
+                targetOrganization: 'vocdoni',
+                targetRepositories: [
+                  {
+                    fullName: 'vocdoni/davinciNode',
+                    isStarred: true,
+                  },
+                  {
+                    fullName: 'vocdoni/davinciSDK',
+                    isStarred: false,
+                  },
+                ],
+              },
+              status: 'active',
+              userId: '333333',
+              username: 'questcoder',
+            },
+            telegram: {
+              connected: true,
+              displayName: 'Quest Captain',
+              error: null,
+              stats: {
+                isInTargetChannel: true,
+              },
+              status: 'active',
+              userId: '222222222',
+              username: 'questcaptain',
+            },
+            twitter: {
+              connected: true,
+              displayName: 'Quest Poster',
+              error: null,
+              stats: {},
+              status: 'active',
+              userId: 'questtweeter',
+              username: 'questtweeter',
+            },
+          },
+          onchain: {
+            error: null,
+            numberOfProcesses: 2,
+            totalVotes: '33',
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    expect(
+      screen.getByText('0x123400000000000000000000000000000000abcd', {
+        selector: '.address-chip',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('questmaster')).toBeInTheDocument()
+    expect(screen.getByText('questcoder')).toBeInTheDocument()
+    expect(screen.getByText('questcaptain')).toBeInTheDocument()
+    expect(screen.getByText('questtweeter')).toBeInTheDocument()
+    expect(screen.queryByText('Public repos (non-fork): 12')).not.toBeInTheDocument()
+    expect(screen.queryByText('Total votes: 33')).not.toBeInTheDocument()
+  })
+
+  it('unlinks connected providers and disconnects the wallet from the profile page', async () => {
+    window.history.replaceState(null, '', '/profile')
+
     const user = userEvent.setup()
     const disconnectWallet = vi.fn()
     const logout = vi.fn(async () => undefined)
@@ -188,14 +716,12 @@ describe('App', () => {
       createSession({
         isAuthenticated: true,
         logout,
-        profile: {
+        profile: createProfile({
           identities: {
             discord: {
-              checkedAt: null,
               connected: true,
               displayName: 'Quest Master',
               error: null,
-              expiresAt: null,
               stats: {
                 isInTargetServer: true,
               },
@@ -204,11 +730,9 @@ describe('App', () => {
               username: 'questmaster',
             },
             github: {
-              checkedAt: null,
               connected: true,
               displayName: 'Quest Coder',
               error: null,
-              expiresAt: null,
               stats: {
                 isFollowingTargetOrganization: true,
                 isOlderThanOneYear: true,
@@ -230,11 +754,9 @@ describe('App', () => {
               username: 'questcoder',
             },
             telegram: {
-              checkedAt: null,
               connected: true,
               displayName: 'Quest Captain',
               error: null,
-              expiresAt: null,
               stats: {
                 isInTargetChannel: true,
               },
@@ -243,28 +765,16 @@ describe('App', () => {
               username: 'questcaptain',
             },
             twitter: {
-              checkedAt: null,
               connected: true,
-              displayName: 'Quest Tweeter',
+              displayName: 'Quest Poster',
               error: null,
-              expiresAt: null,
               stats: {},
               status: 'active',
               userId: 'questtweeter',
               username: 'questtweeter',
             },
           },
-          onchain: {
-            checkedAt: null,
-            error: null,
-            expiresAt: null,
-            numberOfProcesses: 0,
-            totalVotes: '0',
-          },
-          wallet: {
-            address: '0x123400000000000000000000000000000000abcd',
-          },
-        },
+        }),
         sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
         unlinkProvider,
       }),
@@ -272,27 +782,27 @@ describe('App', () => {
 
     render(<App config={baseConfig} />)
 
-    await user.click(screen.getByRole('button', { name: 'Disconnect Discord' }))
+    await user.click(screen.getByRole('button', { name: 'Remove Discord' }))
     await waitFor(() => {
       expect(unlinkProvider).toHaveBeenCalledWith('discord')
     })
 
-    await user.click(screen.getByRole('button', { name: 'Disconnect GitHub' }))
+    await user.click(screen.getByRole('button', { name: 'Remove GitHub' }))
     await waitFor(() => {
       expect(unlinkProvider).toHaveBeenCalledWith('github')
     })
 
-    await user.click(screen.getByRole('button', { name: 'Disconnect Telegram' }))
+    await user.click(screen.getByRole('button', { name: 'Remove Telegram' }))
     await waitFor(() => {
       expect(unlinkProvider).toHaveBeenCalledWith('telegram')
     })
 
-    await user.click(screen.getByRole('button', { name: 'Disconnect Twitter' }))
+    await user.click(screen.getByRole('button', { name: 'Remove X' }))
     await waitFor(() => {
       expect(unlinkProvider).toHaveBeenCalledWith('twitter')
     })
 
-    await user.click(screen.getByRole('button', { name: 'Disconnect wallet' }))
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
 
     await waitFor(() => {
       expect(logout).toHaveBeenCalledTimes(1)
@@ -300,172 +810,9 @@ describe('App', () => {
     })
   })
 
-  it('renders merged profile and onchain stats once the session is authenticated', async () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  it('requests an X proof code and verifies the post URL inline from the profile page', async () => {
+    window.history.replaceState(null, '', '/profile')
 
-    mockedUseWalletConnection.mockReturnValue(
-      createWalletConnection({
-        address: '0x123400000000000000000000000000000000abcd',
-        connectors: [],
-        isConnected: true,
-      }),
-    )
-    mockedUseAppSession.mockReturnValue(
-      createSession({
-        isAuthenticated: true,
-        profile: {
-          identities: {
-            discord: {
-              checkedAt: '2026-03-24T12:00:00.000Z',
-              connected: true,
-              displayName: 'Quest Master',
-              error: null,
-              expiresAt: '2026-03-25T00:00:00.000Z',
-              stats: {
-                isInTargetServer: true,
-              },
-              status: 'active',
-              userId: '111111111111111111',
-              username: 'questmaster',
-            },
-            github: {
-              checkedAt: '2026-03-24T12:00:00.000Z',
-              connected: true,
-              displayName: 'Quest Coder',
-              error: null,
-              expiresAt: '2026-03-25T00:00:00.000Z',
-              stats: {
-                isFollowingTargetOrganization: true,
-                isOlderThanOneYear: true,
-                publicNonForkRepositoryCount: 12,
-                targetOrganization: 'vocdoni',
-                targetRepositories: [
-                  {
-                    fullName: 'vocdoni/davinciNode',
-                    isStarred: true,
-                  },
-                  {
-                    fullName: 'vocdoni/davinciSDK',
-                    isStarred: false,
-                  },
-                ],
-              },
-              status: 'active',
-              userId: '333333',
-              username: 'questcoder',
-            },
-            telegram: {
-              checkedAt: '2026-03-24T12:00:00.000Z',
-              connected: true,
-              displayName: 'Quest Captain',
-              error: null,
-              expiresAt: '2026-03-25T00:00:00.000Z',
-              stats: {
-                isInTargetChannel: true,
-              },
-              status: 'active',
-              userId: '222222222',
-              username: 'questcaptain',
-            },
-            twitter: {
-              checkedAt: '2026-03-24T12:00:00.000Z',
-              connected: true,
-              displayName: 'Quest Tweeter',
-              error: null,
-              expiresAt: null,
-              stats: {},
-              status: 'active',
-              userId: 'questtweeter',
-              username: 'questtweeter',
-            },
-          },
-          onchain: {
-            checkedAt: '2026-03-24T12:05:00.000Z',
-            error: null,
-            expiresAt: '2026-03-24T12:10:00.000Z',
-            numberOfProcesses: 2,
-            totalVotes: '33',
-          },
-          wallet: {
-            address: '0x123400000000000000000000000000000000abcd',
-          },
-        },
-        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
-      }),
-    )
-
-    render(<App config={baseConfig} />)
-
-    await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith('User stats', {
-        discord: {
-          checkedAt: '2026-03-24T12:00:00.000Z',
-          error: null,
-          expiresAt: '2026-03-25T00:00:00.000Z',
-          isConnected: true,
-          isInTargetServer: true,
-          status: 'active',
-          userId: '111111111111111111',
-          username: 'Quest Master',
-        },
-        github: {
-          checkedAt: '2026-03-24T12:00:00.000Z',
-          displayName: 'Quest Coder',
-          error: null,
-          expiresAt: '2026-03-25T00:00:00.000Z',
-          isConnected: true,
-          isFollowingTargetOrganization: true,
-          isOlderThanOneYear: true,
-          publicNonForkRepositoryCount: 12,
-          status: 'active',
-          targetOrganization: 'vocdoni',
-          targetRepositories: [
-            {
-              fullName: 'vocdoni/davinciNode',
-              isStarred: true,
-            },
-            {
-              fullName: 'vocdoni/davinciSDK',
-              isStarred: false,
-            },
-          ],
-          userId: '333333',
-          username: 'questcoder',
-        },
-        onchain: {
-          address: '0x123400000000000000000000000000000000abcd',
-          checkedAt: '2026-03-24T12:05:00.000Z',
-          error: null,
-          expiresAt: '2026-03-24T12:10:00.000Z',
-          numberOfProcesses: 2,
-          totalVotes: '33',
-        },
-        telegram: {
-          checkedAt: '2026-03-24T12:00:00.000Z',
-          displayName: 'Quest Captain',
-          error: null,
-          expiresAt: '2026-03-25T00:00:00.000Z',
-          isConnected: true,
-          isInTargetChannel: true,
-          status: 'active',
-          userId: '222222222',
-          username: 'questcaptain',
-        },
-        twitter: {
-          checkedAt: '2026-03-24T12:00:00.000Z',
-          displayName: 'Quest Tweeter',
-          error: null,
-          expiresAt: null,
-          isConnected: true,
-          status: 'active',
-          userId: 'questtweeter',
-          username: 'questtweeter',
-        },
-      })
-    })
-  })
-
-  it('requests a Twitter proof code and verifies the tweet URL inline', async () => {
     const user = userEvent.setup()
     const requestTwitterCode = vi.fn(async () => ({
       code: 'twitter-proof-code',
@@ -483,83 +830,7 @@ describe('App', () => {
     mockedUseAppSession.mockReturnValue(
       createSession({
         isAuthenticated: true,
-        profile: {
-          identities: {
-            discord: {
-              checkedAt: null,
-              connected: false,
-              displayName: null,
-              error: null,
-              expiresAt: null,
-              stats: {
-                isInTargetServer: null,
-              },
-              status: 'disconnected',
-              userId: null,
-              username: null,
-            },
-            github: {
-              checkedAt: null,
-              connected: false,
-              displayName: null,
-              error: null,
-              expiresAt: null,
-              stats: {
-                isFollowingTargetOrganization: null,
-                isOlderThanOneYear: null,
-                publicNonForkRepositoryCount: null,
-                targetOrganization: 'vocdoni',
-                targetRepositories: [
-                  {
-                    fullName: 'vocdoni/davinciNode',
-                    isStarred: null,
-                  },
-                  {
-                    fullName: 'vocdoni/davinciSDK',
-                    isStarred: null,
-                  },
-                ],
-              },
-              status: 'disconnected',
-              userId: null,
-              username: null,
-            },
-            telegram: {
-              checkedAt: null,
-              connected: false,
-              displayName: null,
-              error: null,
-              expiresAt: null,
-              stats: {
-                isInTargetChannel: null,
-              },
-              status: 'disconnected',
-              userId: null,
-              username: null,
-            },
-            twitter: {
-              checkedAt: null,
-              connected: false,
-              displayName: null,
-              error: null,
-              expiresAt: null,
-              stats: {},
-              status: 'disconnected',
-              userId: null,
-              username: null,
-            },
-          },
-          onchain: {
-            checkedAt: null,
-            error: null,
-            expiresAt: null,
-            numberOfProcesses: 0,
-            totalVotes: '0',
-          },
-          wallet: {
-            address: '0x123400000000000000000000000000000000abcd',
-          },
-        },
+        profile: createProfile(),
         requestTwitterCode,
         sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
         verifyTwitterTweet,
@@ -568,7 +839,7 @@ describe('App', () => {
 
     render(<App config={baseConfig} />)
 
-    await user.click(screen.getByRole('button', { name: 'Connect Twitter' }))
+    await user.click(screen.getByRole('button', { name: 'Connect X' }))
 
     await waitFor(() => {
       expect(requestTwitterCode).toHaveBeenCalledTimes(1)
@@ -577,10 +848,10 @@ describe('App', () => {
     expect(screen.getByText('twitter-proof-code')).toBeInTheDocument()
 
     await user.type(
-      screen.getByLabelText('Tweet URL'),
+      screen.getByLabelText('Post URL'),
       'https://x.com/questtweeter/status/1234567890',
     )
-    await user.click(screen.getByRole('button', { name: 'Verify tweet' }))
+    await user.click(screen.getByRole('button', { name: 'Verify post' }))
 
     await waitFor(() => {
       expect(verifyTwitterTweet).toHaveBeenCalledWith(

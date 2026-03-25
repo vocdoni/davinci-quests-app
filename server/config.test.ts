@@ -72,7 +72,6 @@ describe('parseServerConfig', () => {
         contractAddress: '0x0000000000000000000000000000000000000001',
         rpcUrl: 'https://rpc.example.org/',
         startBlock: 12345n,
-        statsTtlSeconds: 300,
       },
       providerTokenEncryptionSecret: 'provider-secret',
       telegram: {

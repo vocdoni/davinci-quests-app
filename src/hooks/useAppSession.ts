@@ -6,11 +6,9 @@ import { ApiError, buildApiUrl, requestJson, requestVoid } from '../lib/api'
 export type ProviderName = 'discord' | 'github' | 'telegram' | 'twitter'
 
 type DiscordIdentity = {
-  checkedAt: string | null
   connected: boolean
   displayName: string | null
   error: string | null
-  expiresAt: string | null
   stats: {
     isInTargetServer: boolean | null
   }
@@ -20,11 +18,9 @@ type DiscordIdentity = {
 }
 
 type GitHubIdentity = {
-  checkedAt: string | null
   connected: boolean
   displayName: string | null
   error: string | null
-  expiresAt: string | null
   stats: {
     isFollowingTargetOrganization: boolean | null
     isOlderThanOneYear: boolean | null
@@ -41,11 +37,9 @@ type GitHubIdentity = {
 }
 
 type TelegramIdentity = {
-  checkedAt: string | null
   connected: boolean
   displayName: string | null
   error: string | null
-  expiresAt: string | null
   stats: {
     isInTargetChannel: boolean | null
   }
@@ -55,11 +49,9 @@ type TelegramIdentity = {
 }
 
 type TwitterIdentity = {
-  checkedAt: string | null
   connected: boolean
   displayName: string | null
   error: string | null
-  expiresAt: string | null
   stats: Record<string, never>
   status: string
   userId: string | null
@@ -74,9 +66,7 @@ export type AppProfile = {
     twitter: TwitterIdentity
   }
   onchain: {
-    checkedAt: string | null
     error: string | null
-    expiresAt: string | null
     numberOfProcesses: number
     totalVotes: string
   }

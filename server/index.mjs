@@ -28,7 +28,8 @@ import {
   setCorsHeaders,
 } from './http.mjs'
 import { createMongoIdentityStore } from './mongo.mjs'
-import { createOnchainStatsDependencies, emptyOnchainStats } from './processRegistry.mjs'
+import { createOnchainStatsDependencies } from './processRegistry.mjs'
+import { loadQuestCatalog } from './quests.mjs'
 import {
   buildWalletSignInMessage,
   createAppSessionToken,
@@ -60,7 +61,6 @@ import {
 
 const APP_SESSION_COOKIE_NAME = 'quests_dashboard_app_session'
 const WALLET_CHALLENGE_COOKIE_NAME = 'quests_dashboard_wallet_challenge'
-const PROVIDER_CACHE_TTL_MS = 12 * 60 * 60 * 1000
 const TWITTER_CODE_TTL_MS = 5 * 60 * 1000
 
 class RequestError extends Error {
@@ -194,11 +194,9 @@ function normalizeGitHubTargetRepositories(value, githubConfig) {
 
 function buildDefaultIdentity(provider, githubConfig = null) {
   return {
-    checkedAt: null,
     connected: false,
     displayName: null,
     error: null,
-    expiresAt: null,
     stats:
       provider === 'discord'
         ? { isInTargetServer: null }
@@ -215,15 +213,13 @@ function buildDefaultIdentity(provider, githubConfig = null) {
 
 function buildDefaultOnchain() {
   return {
-    checkedAt: null,
     error: null,
-    expiresAt: null,
     numberOfProcesses: 0,
     totalVotes: '0',
   }
 }
 
-function normalizeLinkTimestamp(value) {
+function normalizeTimestamp(value) {
   if (!value) {
     return null
   }
@@ -233,146 +229,24 @@ function normalizeLinkTimestamp(value) {
   return Number.isFinite(timestamp) ? timestamp : null
 }
 
-function shouldRefreshOnchain(profile, now) {
-  const expiresAt = normalizeLinkTimestamp(profile?.onchainExpiresAt)
-  return expiresAt === null || expiresAt <= now
-}
-
-function shouldRefreshLink(link, now) {
-  if (link.provider === 'twitter') {
-    return false
-  }
-
-  if (link.status === 'reauth_required') {
-    return false
-  }
-
-  const expiresAt = normalizeLinkTimestamp(link.expiresAt)
-  return expiresAt === null || expiresAt <= now
-}
-
-function serializeIdentityLink(provider, link, githubConfig = null) {
-  if (!link) {
-    return buildDefaultIdentity(provider, githubConfig)
-  }
-
-  const stats =
-    provider === 'discord'
-      ? {
-          isInTargetServer:
-            link.stats &&
-            typeof link.stats === 'object' &&
-            'isInTargetServer' in link.stats &&
-            typeof link.stats.isInTargetServer === 'boolean'
-              ? link.stats.isInTargetServer
-              : null,
-        }
-      : provider === 'github'
-        ? {
-            isFollowingTargetOrganization:
-              link.stats &&
-              typeof link.stats === 'object' &&
-              'isFollowingTargetOrganization' in link.stats &&
-              typeof link.stats.isFollowingTargetOrganization === 'boolean' &&
-              (
-                !githubConfig?.targetOrganization ||
-                ('targetOrganization' in link.stats &&
-                  typeof link.stats.targetOrganization === 'string' &&
-                  link.stats.targetOrganization === githubConfig.targetOrganization)
-              )
-                ? link.stats.isFollowingTargetOrganization
-                : null,
-            isOlderThanOneYear:
-              link.stats &&
-              typeof link.stats === 'object' &&
-              'isOlderThanOneYear' in link.stats &&
-              typeof link.stats.isOlderThanOneYear === 'boolean'
-                ? link.stats.isOlderThanOneYear
-                : null,
-            publicNonForkRepositoryCount:
-              link.stats &&
-              typeof link.stats === 'object' &&
-              'publicNonForkRepositoryCount' in link.stats &&
-              typeof link.stats.publicNonForkRepositoryCount === 'number'
-                ? link.stats.publicNonForkRepositoryCount
-                : null,
-            targetOrganization:
-              githubConfig?.targetOrganization ??
-              (link.stats &&
-              typeof link.stats === 'object' &&
-              'targetOrganization' in link.stats &&
-              typeof link.stats.targetOrganization === 'string'
-                ? link.stats.targetOrganization
-                : null),
-            targetRepositories: normalizeGitHubTargetRepositories(
-              link.stats &&
-                typeof link.stats === 'object' &&
-                'targetRepositories' in link.stats
-                ? link.stats.targetRepositories
-                : null,
-              githubConfig,
-            ),
-          }
-      : provider === 'twitter'
-        ? {}
-      : {
-          isInTargetChannel:
-            link.stats &&
-            typeof link.stats === 'object' &&
-            'isInTargetChannel' in link.stats &&
-            typeof link.stats.isInTargetChannel === 'boolean'
-              ? link.stats.isInTargetChannel
-              : null,
-        }
+function buildConnectedIdentity(provider, link, options = {}, githubConfig = null) {
+  const defaultIdentity = buildDefaultIdentity(provider, githubConfig)
 
   return {
-    checkedAt: link.checkedAt ?? null,
     connected: true,
-    displayName: link.displayName ?? null,
-    error: link.lastError ?? null,
-    expiresAt: link.expiresAt ?? null,
-    stats,
-    status: link.status ?? 'active',
-    userId: link.providerUserId ?? null,
-    username: link.username ?? null,
+    displayName: options.displayName ?? link.displayName ?? null,
+    error: options.error ?? null,
+    stats: options.stats ?? defaultIdentity.stats,
+    status: options.status ?? 'active',
+    userId: options.userId ?? link.providerUserId ?? null,
+    username: options.username ?? link.username ?? null,
   }
 }
 
-function serializeOnchainProfile(walletProfile) {
-  if (!walletProfile) {
-    return buildDefaultOnchain()
-  }
-
+function buildProfileResponse(walletAddress, identities, onchain) {
   return {
-    checkedAt: walletProfile.onchainCheckedAt ?? null,
-    error: walletProfile.onchainLastError ?? null,
-    expiresAt: walletProfile.onchainExpiresAt ?? null,
-    numberOfProcesses:
-      typeof walletProfile.onchainCreatedProcessesCount === 'number'
-        ? walletProfile.onchainCreatedProcessesCount
-        : emptyOnchainStats.createdProcessesCount,
-    totalVotes:
-      typeof walletProfile.onchainTotalVotes === 'string'
-        ? walletProfile.onchainTotalVotes
-        : emptyOnchainStats.totalVotes,
-  }
-}
-
-function buildProfileResponse(config, walletAddress, walletProfile, links) {
-  const linkMap = new Map(links.map((link) => [link.provider, link]))
-
-  return {
-    identities: {
-      discord: serializeIdentityLink('discord', linkMap.get('discord') ?? null),
-      github: serializeIdentityLink(
-        'github',
-        linkMap.get('github') ?? null,
-        config.github,
-      ),
-      telegram: serializeIdentityLink('telegram', linkMap.get('telegram') ?? null),
-      twitter: serializeIdentityLink('twitter', linkMap.get('twitter') ?? null),
-    },
-    onchain: serializeOnchainProfile(walletProfile),
+    identities,
+    onchain,
     wallet: {
       address: walletAddress,
     },
@@ -397,11 +271,7 @@ async function persistDiscordLink(config, dependencies, walletAddress, tokenResp
     throw new Error('Discord account is already linked to another wallet.')
   }
 
-  const now = dependencies.now()
-
   return dependencies.store.upsertIdentityLink(walletAddress, 'discord', {
-    accessTokenExpiresAt: new Date(now + tokenResponse.expiresInSeconds * 1000),
-    checkedAt: new Date(now),
     displayName: stats.displayName ?? null,
     encryptedAccessToken: encryptSecret(
       tokenResponse.accessToken,
@@ -411,26 +281,14 @@ async function persistDiscordLink(config, dependencies, walletAddress, tokenResp
       tokenResponse.refreshToken,
       config.providerTokenEncryptionSecret,
     ),
-    expiresAt: new Date(now + PROVIDER_CACHE_TTL_MS),
-    lastError: null,
     providerUserId: stats.userId,
     scope: tokenResponse.scope,
-    stats: {
-      isInTargetServer: stats.isInTargetServer,
-    },
-    status: 'active',
     tokenType: tokenResponse.tokenType,
     username: stats.username ?? null,
   })
 }
 
-async function persistTelegramLink(
-  config,
-  dependencies,
-  walletAddress,
-  telegramUser,
-  membershipResult,
-) {
+async function persistTelegramLink(dependencies, walletAddress, telegramUser) {
   const existingLink = await dependencies.store.findIdentityLinkByProviderUserId(
     'telegram',
     telegramUser.telegramId,
@@ -440,18 +298,9 @@ async function persistTelegramLink(
     throw new Error('Telegram account is already linked to another wallet.')
   }
 
-  const now = dependencies.now()
-
   return dependencies.store.upsertIdentityLink(walletAddress, 'telegram', {
-    checkedAt: new Date(now),
     displayName: telegramUser.displayName ?? null,
-    expiresAt: new Date(now + PROVIDER_CACHE_TTL_MS),
-    lastError: membershipResult.error,
     providerUserId: telegramUser.telegramId,
-    stats: {
-      isInTargetChannel: membershipResult.isInTargetChannel,
-    },
-    status: 'active',
     telegramSubject: telegramUser.subject,
     username: telegramUser.username ?? null,
   })
@@ -472,28 +321,14 @@ async function persistGitHubLink(
     throw new Error('GitHub account is already linked to another wallet.')
   }
 
-  const now = dependencies.now()
-
   return dependencies.store.upsertIdentityLink(walletAddress, 'github', {
-    checkedAt: new Date(now),
     displayName: stats.displayName ?? null,
     encryptedAccessToken: encryptSecret(
       tokenResponse.accessToken,
       config.providerTokenEncryptionSecret,
     ),
-    expiresAt: new Date(now + PROVIDER_CACHE_TTL_MS),
-    githubAccountCreatedAt: new Date(stats.accountCreatedAt),
-    lastError: null,
     providerUserId: stats.userId,
     scope: tokenResponse.scope,
-    stats: {
-      isFollowingTargetOrganization: stats.isFollowingTargetOrganization,
-      isOlderThanOneYear: stats.isOlderThanOneYear,
-      publicNonForkRepositoryCount: stats.publicNonForkRepositoryCount,
-      targetOrganization: stats.targetOrganization,
-      targetRepositories: stats.targetRepositories,
-    },
-    status: 'active',
     tokenType: tokenResponse.tokenType,
     username: stats.username ?? null,
   })
@@ -512,13 +347,8 @@ async function persistTwitterLink(dependencies, walletAddress, proofTweet) {
   const now = dependencies.now()
 
   return dependencies.store.upsertIdentityLink(walletAddress, 'twitter', {
-    checkedAt: new Date(now),
     displayName: proofTweet.displayName ?? null,
-    expiresAt: null,
-    lastError: null,
     providerUserId: proofTweet.username,
-    stats: {},
-    status: 'active',
     twitterProofTweetId: proofTweet.tweetId,
     twitterProofTweetUrl: proofTweet.normalizedTweetUrl,
     twitterVerifiedAt: new Date(now),
@@ -534,8 +364,55 @@ async function clearPendingTwitterCode(dependencies, walletAddress) {
   })
 }
 
-async function refreshDiscordLink(config, dependencies, link) {
-  const now = dependencies.now()
+async function resolveDiscordIdentity(config, dependencies, link) {
+  if (!link) {
+    return buildDefaultIdentity('discord')
+  }
+
+  let accessToken
+
+  try {
+    accessToken = decryptSecret(
+      link.encryptedAccessToken,
+      config.providerTokenEncryptionSecret,
+    )
+  } catch (error) {
+    return buildConnectedIdentity('discord', link, {
+      error: getErrorMessage(error),
+      stats: { isInTargetServer: null },
+      status: 'reauth_required',
+    })
+  }
+
+  try {
+    const stats = await dependencies.discord.fetchUserStats({
+      accessToken,
+      guildId: config.discord.guildId,
+    })
+    const nextLink = await dependencies.store.upsertIdentityLink(link.walletAddress, 'discord', {
+      displayName: stats.displayName ?? null,
+      providerUserId: stats.userId,
+      username: stats.username ?? null,
+    })
+
+    return buildConnectedIdentity('discord', nextLink, {
+      displayName: stats.displayName ?? null,
+      stats: {
+        isInTargetServer: stats.isInTargetServer,
+      },
+      userId: stats.userId,
+      username: stats.username ?? null,
+    })
+  } catch (error) {
+    if (!(error instanceof DiscordApiError) || (error.status !== 400 && error.status !== 401)) {
+      return buildConnectedIdentity('discord', link, {
+        error: getErrorMessage(error),
+        stats: { isInTargetServer: null },
+        status: 'error',
+      })
+    }
+  }
+
   let refreshToken
 
   try {
@@ -544,10 +421,9 @@ async function refreshDiscordLink(config, dependencies, link) {
       config.providerTokenEncryptionSecret,
     )
   } catch (error) {
-    return dependencies.store.upsertIdentityLink(link.walletAddress, 'discord', {
-      checkedAt: new Date(now),
-      expiresAt: null,
-      lastError: getErrorMessage(error),
+    return buildConnectedIdentity('discord', link, {
+      error: getErrorMessage(error),
+      stats: { isInTargetServer: null },
       status: 'reauth_required',
     })
   }
@@ -562,61 +438,39 @@ async function refreshDiscordLink(config, dependencies, link) {
       accessToken: tokenResponse.accessToken,
       guildId: config.discord.guildId,
     })
+    const nextLink = await persistDiscordLink(
+      config,
+      dependencies,
+      link.walletAddress,
+      tokenResponse,
+      stats,
+    )
 
-    return persistDiscordLink(config, dependencies, link.walletAddress, tokenResponse, stats)
-  } catch (error) {
-    if (error instanceof DiscordApiError && (error.status === 400 || error.status === 401)) {
-      return dependencies.store.upsertIdentityLink(link.walletAddress, 'discord', {
-        checkedAt: new Date(now),
-        expiresAt: null,
-        lastError: getErrorMessage(error),
-        status: 'reauth_required',
-      })
-    }
-
-    return dependencies.store.upsertIdentityLink(link.walletAddress, 'discord', {
-      checkedAt: new Date(now),
-      expiresAt: new Date(now + PROVIDER_CACHE_TTL_MS),
-      lastError: getErrorMessage(error),
-    })
-  }
-}
-
-async function refreshTelegramLink(config, dependencies, link) {
-  const now = dependencies.now()
-
-  try {
-    const membership = await dependencies.telegram.fetchChannelMembership({
-      botToken: config.telegram.botToken,
-      channelUsername: config.telegram.channelUsername,
-      telegramUserId: link.providerUserId,
-    })
-
-    return dependencies.store.upsertIdentityLink(link.walletAddress, 'telegram', {
-      checkedAt: new Date(now),
-      expiresAt: new Date(now + PROVIDER_CACHE_TTL_MS),
-      lastError: null,
+    return buildConnectedIdentity('discord', nextLink, {
+      displayName: stats.displayName ?? null,
       stats: {
-        isInTargetChannel: membership.isInTargetChannel,
+        isInTargetServer: stats.isInTargetServer,
       },
-      status: 'active',
+      userId: stats.userId,
+      username: stats.username ?? null,
     })
   } catch (error) {
-    return dependencies.store.upsertIdentityLink(link.walletAddress, 'telegram', {
-      checkedAt: new Date(now),
-      expiresAt: new Date(now + PROVIDER_CACHE_TTL_MS),
-      lastError: getErrorMessage(error),
-      stats:
-        link.stats && typeof link.stats === 'object'
-          ? link.stats
-          : { isInTargetChannel: null },
-      status: 'active',
+    return buildConnectedIdentity('discord', link, {
+      error: getErrorMessage(error),
+      stats: { isInTargetServer: null },
+      status:
+        error instanceof DiscordApiError && (error.status === 400 || error.status === 401)
+          ? 'reauth_required'
+          : 'error',
     })
   }
 }
 
-async function refreshGitHubLink(config, dependencies, link) {
-  const now = dependencies.now()
+async function resolveGitHubIdentity(config, dependencies, link) {
+  if (!link) {
+    return buildDefaultIdentity('github', config.github)
+  }
+
   let accessToken
 
   try {
@@ -625,12 +479,16 @@ async function refreshGitHubLink(config, dependencies, link) {
       config.providerTokenEncryptionSecret,
     )
   } catch (error) {
-    return dependencies.store.upsertIdentityLink(link.walletAddress, 'github', {
-      checkedAt: new Date(now),
-      expiresAt: null,
-      lastError: getErrorMessage(error),
-      status: 'reauth_required',
-    })
+    return buildConnectedIdentity(
+      'github',
+      link,
+      {
+        error: getErrorMessage(error),
+        stats: buildDefaultGitHubStats(config.github),
+        status: 'reauth_required',
+      },
+      config.github,
+    )
   }
 
   try {
@@ -639,84 +497,98 @@ async function refreshGitHubLink(config, dependencies, link) {
       targetOrganization: config.github.targetOrganization,
       targetRepositories: config.github.targetRepositories,
     })
+    const nextLink = await dependencies.store.upsertIdentityLink(link.walletAddress, 'github', {
+      displayName: stats.displayName ?? null,
+      providerUserId: stats.userId,
+      username: stats.username ?? null,
+    })
 
-    return persistGitHubLink(
-      config,
-      dependencies,
-      link.walletAddress,
+    return buildConnectedIdentity(
+      'github',
+      nextLink,
       {
-        accessToken,
-        scope: typeof link.scope === 'string' ? link.scope : '',
-        tokenType: typeof link.tokenType === 'string' ? link.tokenType : 'bearer',
+        displayName: stats.displayName ?? null,
+        stats: {
+          isFollowingTargetOrganization: stats.isFollowingTargetOrganization,
+          isOlderThanOneYear: stats.isOlderThanOneYear,
+          publicNonForkRepositoryCount: stats.publicNonForkRepositoryCount,
+          targetOrganization: stats.targetOrganization,
+          targetRepositories: normalizeGitHubTargetRepositories(
+            stats.targetRepositories,
+            config.github,
+          ),
+        },
+        userId: stats.userId,
+        username: stats.username ?? null,
       },
-      stats,
+      config.github,
     )
   } catch (error) {
-    if (error instanceof GitHubApiError && error.status === 401) {
-      return dependencies.store.upsertIdentityLink(link.walletAddress, 'github', {
-        checkedAt: new Date(now),
-        expiresAt: null,
-        lastError: getErrorMessage(error),
-        status: 'reauth_required',
-      })
-    }
+    return buildConnectedIdentity(
+      'github',
+      link,
+      {
+        error: getErrorMessage(error),
+        stats: buildDefaultGitHubStats(config.github),
+        status: error instanceof GitHubApiError && error.status === 401 ? 'reauth_required' : 'error',
+      },
+      config.github,
+    )
+  }
+}
 
-    return dependencies.store.upsertIdentityLink(link.walletAddress, 'github', {
-      checkedAt: new Date(now),
-      expiresAt: new Date(now + PROVIDER_CACHE_TTL_MS),
-      lastError: getErrorMessage(error),
-      stats:
-        link.stats && typeof link.stats === 'object'
-          ? link.stats
-          : buildDefaultGitHubStats(config.github),
-      status: 'active',
+async function resolveTelegramIdentity(config, dependencies, link) {
+  if (!link) {
+    return buildDefaultIdentity('telegram')
+  }
+
+  try {
+    const membership = await dependencies.telegram.fetchChannelMembership({
+      botToken: config.telegram.botToken,
+      channelUsername: config.telegram.channelUsername,
+      telegramUserId: link.providerUserId,
+    })
+
+    return buildConnectedIdentity('telegram', link, {
+      stats: {
+        isInTargetChannel: membership.isInTargetChannel,
+      },
+    })
+  } catch (error) {
+    return buildConnectedIdentity('telegram', link, {
+      error: getErrorMessage(error),
+      stats: {
+        isInTargetChannel: null,
+      },
+      status: 'error',
     })
   }
 }
 
-async function refreshIdentityLink(config, dependencies, link) {
-  if (link.provider === 'discord') {
-    return refreshDiscordLink(config, dependencies, link)
+function resolveTwitterIdentity(link) {
+  if (!link) {
+    return buildDefaultIdentity('twitter')
   }
 
-  if (link.provider === 'github') {
-    return refreshGitHubLink(config, dependencies, link)
-  }
-
-  if (link.provider === 'telegram') {
-    return refreshTelegramLink(config, dependencies, link)
-  }
-
-  return link
+  return buildConnectedIdentity('twitter', link, {
+    stats: {},
+  })
 }
 
-async function refreshOnchainStats(config, dependencies, walletAddress, existingProfile) {
-  const now = dependencies.now()
-
+async function resolveOnchainProfile(dependencies, walletAddress) {
   try {
     const stats = await dependencies.onchain.fetchUserStats(walletAddress)
 
-    return dependencies.store.upsertWalletProfile(walletAddress, {
-      onchainCheckedAt: new Date(now),
-      onchainCreatedProcessesCount: stats.createdProcessesCount,
-      onchainExpiresAt: new Date(now + config.onchain.statsTtlSeconds * 1000),
-      onchainLastError: null,
-      onchainTotalVotes: stats.totalVotes,
-    })
+    return {
+      error: null,
+      numberOfProcesses: stats.createdProcessesCount,
+      totalVotes: stats.totalVotes,
+    }
   } catch (error) {
-    return dependencies.store.upsertWalletProfile(walletAddress, {
-      onchainCheckedAt: new Date(now),
-      onchainCreatedProcessesCount:
-        typeof existingProfile?.onchainCreatedProcessesCount === 'number'
-          ? existingProfile.onchainCreatedProcessesCount
-          : emptyOnchainStats.createdProcessesCount,
-      onchainExpiresAt: new Date(now + config.onchain.statsTtlSeconds * 1000),
-      onchainLastError: getErrorMessage(error),
-      onchainTotalVotes:
-        typeof existingProfile?.onchainTotalVotes === 'string'
-          ? existingProfile.onchainTotalVotes
-          : emptyOnchainStats.totalVotes,
-    })
+    return {
+      ...buildDefaultOnchain(),
+      error: getErrorMessage(error),
+    }
   }
 }
 
@@ -927,36 +799,38 @@ async function handleGetMe(config, dependencies, request, response) {
 
   const now = dependencies.now()
 
-  const currentWalletProfile = await dependencies.store.upsertWalletProfile(session.walletAddress, {
+  await dependencies.store.upsertWalletProfile(session.walletAddress, {
     lastSeenAt: new Date(now),
   })
 
   const links = await dependencies.store.listIdentityLinks(session.walletAddress)
-  const staleLinks = links.filter((link) => shouldRefreshLink(link, now))
-
-  if (staleLinks.length > 0) {
-    await Promise.all(
-      staleLinks.map((link) => refreshIdentityLink(config, dependencies, link)),
-    )
-  }
-
-  if (shouldRefreshOnchain(currentWalletProfile, now)) {
-    await refreshOnchainStats(
-      config,
-      dependencies,
-      session.walletAddress,
-      currentWalletProfile,
-    )
-  }
-
-  const nextWalletProfile = await dependencies.store.getWalletProfile(session.walletAddress)
-  const nextLinks = await dependencies.store.listIdentityLinks(session.walletAddress)
+  const linkMap = new Map(links.map((link) => [link.provider, link]))
+  const [discord, github, telegram, twitter, onchain] = await Promise.all([
+    resolveDiscordIdentity(config, dependencies, linkMap.get('discord') ?? null),
+    resolveGitHubIdentity(config, dependencies, linkMap.get('github') ?? null),
+    resolveTelegramIdentity(config, dependencies, linkMap.get('telegram') ?? null),
+    Promise.resolve(resolveTwitterIdentity(linkMap.get('twitter') ?? null)),
+    resolveOnchainProfile(dependencies, session.walletAddress),
+  ])
 
   json(
     response,
     200,
-    buildProfileResponse(config, session.walletAddress, nextWalletProfile, nextLinks),
+    buildProfileResponse(
+      session.walletAddress,
+      {
+        discord,
+        github,
+        telegram,
+        twitter,
+      },
+      onchain,
+    ),
   )
+}
+
+function handleGetQuests(questCatalog, response) {
+  json(response, 200, questCatalog)
 }
 
 async function handleTwitterCode(config, dependencies, request, response) {
@@ -1007,7 +881,7 @@ async function handleTwitterVerify(config, dependencies, request, response) {
     walletProfile && typeof walletProfile.twitterPendingCode === 'string'
       ? walletProfile.twitterPendingCode
       : null
-  const pendingCodeExpiresAt = normalizeLinkTimestamp(walletProfile?.twitterPendingCodeExpiresAt)
+  const pendingCodeExpiresAt = normalizeTimestamp(walletProfile?.twitterPendingCodeExpiresAt)
 
   if (!pendingCode || pendingCodeExpiresAt === null) {
     json(response, 400, { message: 'No active Twitter proof code was found.' })
@@ -1371,32 +1245,10 @@ async function handleTelegramCallback(config, dependencies, requestUrl, request,
       jwksUri: oidcConfiguration.jwksUri,
     })
 
-    let membershipResult
-
-    try {
-      const membership = await dependencies.telegram.fetchChannelMembership({
-        botToken: config.telegram.botToken,
-        channelUsername: config.telegram.channelUsername,
-        telegramUserId: telegramUser.telegramId,
-      })
-
-      membershipResult = {
-        error: null,
-        isInTargetChannel: membership.isInTargetChannel,
-      }
-    } catch (error) {
-      membershipResult = {
-        error: getErrorMessage(error),
-        isInTargetChannel: null,
-      }
-    }
-
     await persistTelegramLink(
-      config,
       dependencies,
       session.walletAddress,
       telegramUser,
-      membershipResult,
     )
 
     redirect(response, createLinkSuccessRedirect(config, 'telegram'))
@@ -1412,7 +1264,7 @@ function matchesApiPath(pathname, prefix) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`)
 }
 
-export function createApiServer(config, dependencies) {
+export function createApiServer(config, dependencies, { questCatalog = loadQuestCatalog() } = {}) {
   return createServer((request, response) => {
     const requestUrl = new URL(
       request.url ?? '/',
@@ -1451,6 +1303,11 @@ export function createApiServer(config, dependencies) {
 
       if (request.method === 'GET' && requestUrl.pathname === '/api/me') {
         await handleGetMe(config, dependencies, request, response)
+        return
+      }
+
+      if (request.method === 'GET' && requestUrl.pathname === '/api/quests') {
+        handleGetQuests(questCatalog, response)
         return
       }
 
@@ -1530,6 +1387,7 @@ if (isDirectRun) {
   ])
 
   const config = parseServerConfig(process.env)
+  const questCatalog = loadQuestCatalog()
   const store = await createMongoIdentityStore(config)
   const server = createApiServer(
     config,
@@ -1537,6 +1395,9 @@ if (isDirectRun) {
       onchain: createOnchainStatsDependencies(config),
       store,
     }),
+    {
+      questCatalog,
+    },
   )
 
   server.listen(config.port, () => {

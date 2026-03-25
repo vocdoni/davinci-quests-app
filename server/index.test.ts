@@ -4,6 +4,8 @@ import { Readable } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { verifyMessage } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
+import { DiscordApiError } from './discord.mjs'
+import { GitHubApiError } from './github.mjs'
 import { createApiServer } from './index.mjs'
 import { encryptSecret } from './security.mjs'
 
@@ -43,7 +45,6 @@ const baseConfig = {
     contractAddress: '0x0000000000000000000000000000000000000001',
     rpcUrl: 'https://rpc.example.org',
     startBlock: 12345n,
-    statsTtlSeconds: 300,
   },
   port: 3001,
   providerTokenEncryptionSecret: 'provider-secret',
@@ -259,6 +260,64 @@ afterEach(() => {
 })
 
 describe('API server', () => {
+  it('serves the quest catalog loaded from JSON', async () => {
+    const store = createMemoryStore()
+    const server = createApiServer(baseConfig, {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      now: () => 1_000_000,
+      onchain: createOnchainDependencies(),
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    })
+
+    const response = await performRequest(server, {
+      method: 'GET',
+      url: '/api/quests',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toEqual({
+      builders: [
+        {
+          achievement: 'github.targetRepositories[0].isStarred == true',
+          description:
+            'Enjoying Davinci Node? Star the repository on GitHub to support the project and help more developers discover it.',
+          id: 1,
+          points: 320,
+          title: 'Star the Davinci Node repo on GitHub',
+        },
+        {
+          achievement: 'github.targetRepositories[1].isStarred == true',
+          description:
+            'Want to build with Davinci? Explore our SDK, star the repository on GitHub, and start creating something great on the protocol.',
+          id: 2,
+          points: 420,
+          title: 'Star the Davinci SDK repo on GitHub',
+        },
+      ],
+      supporters: [
+        {
+          achievement: 'discord.isInTargetServer == true',
+          description:
+            'Join the Vocdoni Discord server to connect with the community, stay up to date, and get support when you need it.',
+          id: 1,
+          points: 100,
+          title: 'Join the Vocdoni Discord server',
+        },
+      ],
+    })
+  })
+
   it('verifies a wallet challenge and returns the default disconnected profile', async () => {
     const store = createMemoryStore()
     const server = createApiServer(baseConfig, {
@@ -297,11 +356,9 @@ describe('API server', () => {
     expect(JSON.parse(meResponse.body)).toEqual({
       identities: {
         discord: {
-          checkedAt: null,
           connected: false,
           displayName: null,
           error: null,
-          expiresAt: null,
           stats: {
             isInTargetServer: null,
           },
@@ -310,11 +367,9 @@ describe('API server', () => {
           username: null,
         },
         github: {
-          checkedAt: null,
           connected: false,
           displayName: null,
           error: null,
-          expiresAt: null,
           stats: {
             isFollowingTargetOrganization: null,
             isOlderThanOneYear: null,
@@ -336,11 +391,9 @@ describe('API server', () => {
           username: null,
         },
         telegram: {
-          checkedAt: null,
           connected: false,
           displayName: null,
           error: null,
-          expiresAt: null,
           stats: {
             isInTargetChannel: null,
           },
@@ -349,11 +402,9 @@ describe('API server', () => {
           username: null,
         },
         twitter: {
-          checkedAt: null,
           connected: false,
           displayName: null,
           error: null,
-          expiresAt: null,
           stats: {},
           status: 'disconnected',
           userId: null,
@@ -361,9 +412,7 @@ describe('API server', () => {
         },
       },
       onchain: {
-        checkedAt: '1970-01-01T00:16:40.000Z',
         error: null,
-        expiresAt: '1970-01-01T00:21:40.000Z',
         numberOfProcesses: 0,
         totalVotes: '0',
       },
@@ -584,11 +633,9 @@ describe('API server', () => {
     })
     expect(successfulVerifyResponse.statusCode).toBe(204)
     expect(JSON.parse(meResponse.body).identities.twitter).toEqual({
-      checkedAt: '2026-03-25T12:00:00.000Z',
       connected: true,
       displayName: 'Quest Tweeter',
       error: null,
-      expiresAt: null,
       stats: {},
       status: 'active',
       userId: 'questtweeter',
@@ -598,11 +645,9 @@ describe('API server', () => {
     expect(walletProfile?.twitterPendingCodeExpiresAt).toBeNull()
     expect(deleteResponse.statusCode).toBe(204)
     expect(JSON.parse(afterDeleteResponse.body).identities.twitter).toEqual({
-      checkedAt: null,
       connected: false,
       displayName: null,
       error: null,
-      expiresAt: null,
       stats: {},
       status: 'disconnected',
       userId: null,
@@ -613,15 +658,10 @@ describe('API server', () => {
   it('rejects expired and duplicate Twitter proof verification attempts', async () => {
     const store = createMemoryStore([
       {
-        checkedAt: new Date(),
         createdAt: new Date(),
         displayName: 'Existing Tweeter',
-        expiresAt: null,
-        lastError: null,
         provider: 'twitter',
         providerUserId: 'questtweeter',
-        stats: {},
-        status: 'active',
         updatedAt: new Date(),
         username: 'questtweeter',
         walletAddress: '0x1111111111111111111111111111111111111111',
@@ -716,17 +756,10 @@ describe('API server', () => {
   it('links Discord through the callback flow and rejects duplicates across wallets', async () => {
     const store = createMemoryStore([
       {
-        checkedAt: new Date(),
         createdAt: new Date(),
         displayName: 'Other Quest Master',
-        expiresAt: new Date(),
-        lastError: null,
         provider: 'discord',
         providerUserId: '999999999999999999',
-        stats: {
-          isInTargetServer: true,
-        },
-        status: 'active',
         updatedAt: new Date(),
         username: 'otherquestmaster',
         walletAddress: '0x1111111111111111111111111111111111111111',
@@ -742,6 +775,12 @@ describe('API server', () => {
       })),
       fetchUserStats: vi
         .fn()
+        .mockResolvedValueOnce({
+          displayName: 'Quest Master',
+          isInTargetServer: true,
+          userId: '111111111111111111',
+          username: 'questmaster',
+        })
         .mockResolvedValueOnce({
           displayName: 'Quest Master',
           isInTargetServer: true,
@@ -836,33 +875,12 @@ describe('API server', () => {
   it('links GitHub through the callback flow and rejects duplicates across wallets', async () => {
     const store = createMemoryStore([
       {
-        checkedAt: new Date(),
         createdAt: new Date(),
         displayName: 'Duplicate Quest',
         encryptedAccessToken: encryptSecret('github-access-token', baseConfig.providerTokenEncryptionSecret),
-        expiresAt: new Date(),
-        githubAccountCreatedAt: new Date('2020-01-01T00:00:00.000Z'),
-        lastError: null,
         provider: 'github',
         providerUserId: '999999',
         scope: 'read:user',
-        stats: {
-          isFollowingTargetOrganization: true,
-          isOlderThanOneYear: true,
-          publicNonForkRepositoryCount: 11,
-          targetOrganization: 'vocdoni',
-          targetRepositories: [
-            {
-              fullName: 'vocdoni/davinciNode',
-              isStarred: true,
-            },
-            {
-              fullName: 'vocdoni/davinciSDK',
-              isStarred: true,
-            },
-          ],
-        },
-        status: 'active',
         tokenType: 'bearer',
         updatedAt: new Date(),
         username: 'duplicatequest',
@@ -877,6 +895,26 @@ describe('API server', () => {
       })),
       fetchUserStats: vi
         .fn()
+        .mockResolvedValueOnce({
+          accountCreatedAt: '2020-01-01T00:00:00.000Z',
+          displayName: 'Quest Master',
+          isFollowingTargetOrganization: true,
+          isOlderThanOneYear: true,
+          publicNonForkRepositoryCount: 9,
+          targetOrganization: 'vocdoni',
+          targetRepositories: [
+            {
+              fullName: 'vocdoni/davinciNode',
+              isStarred: true,
+            },
+            {
+              fullName: 'vocdoni/davinciSDK',
+              isStarred: false,
+            },
+          ],
+          userId: '123456',
+          username: 'questmaster',
+        })
         .mockResolvedValueOnce({
           accountCreatedAt: '2020-01-01T00:00:00.000Z',
           displayName: 'Quest Master',
@@ -1023,13 +1061,12 @@ describe('API server', () => {
     )
   })
 
-  it('refreshes stale Discord stats during /api/me', async () => {
+  it('recomputes Discord stats on every /api/me request and retries with a refreshed token when unauthorized', async () => {
     const account = privateKeyToAccount(
       '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
     )
     const store = createMemoryStore([
       {
-        checkedAt: new Date('2026-03-23T00:00:00.000Z'),
         createdAt: new Date('2026-03-23T00:00:00.000Z'),
         displayName: 'Old Quest Master',
         encryptedAccessToken: encryptSecret('old-access', baseConfig.providerTokenEncryptionSecret),
@@ -1037,15 +1074,9 @@ describe('API server', () => {
           'old-refresh',
           baseConfig.providerTokenEncryptionSecret,
         ),
-        expiresAt: new Date('2026-03-23T12:00:00.000Z'),
-        lastError: null,
         provider: 'discord',
         providerUserId: '111111111111111111',
         scope: 'identify guilds.members.read',
-        stats: {
-          isInTargetServer: false,
-        },
-        status: 'active',
         updatedAt: new Date('2026-03-23T00:00:00.000Z'),
         username: 'oldquestmaster',
         walletAddress: account.address,
@@ -1054,12 +1085,21 @@ describe('API server', () => {
     const dependencies = {
       discord: {
         exchangeAuthorizationCode: vi.fn(),
-        fetchUserStats: vi.fn(async () => ({
-          displayName: 'Quest Master',
-          isInTargetServer: true,
-          userId: '111111111111111111',
-          username: 'questmaster',
-        })),
+        fetchUserStats: vi
+          .fn()
+          .mockRejectedValueOnce(new DiscordApiError('Unauthorized', 401))
+          .mockResolvedValueOnce({
+            displayName: 'Quest Master',
+            isInTargetServer: true,
+            userId: '111111111111111111',
+            username: 'questmaster',
+          })
+          .mockResolvedValueOnce({
+            displayName: 'Quest Master Redux',
+            isInTargetServer: false,
+            userId: '111111111111111111',
+            username: 'questmasterredux',
+          }),
         refreshAccessToken: vi.fn(async () => ({
           accessToken: 'new-access-token',
           expiresInSeconds: 3600,
@@ -1081,7 +1121,14 @@ describe('API server', () => {
     }
     const server = createApiServer(baseConfig, dependencies)
     const sessionTokenResponse = await authenticateWallet(server, account)
-    const meResponse = await performRequest(server, {
+    const firstMeResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionTokenResponse.sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/me',
+    })
+    const secondMeResponse = await performRequest(server, {
       headers: {
         cookie: sessionTokenResponse.sessionCookie ?? '',
       },
@@ -1094,48 +1141,53 @@ describe('API server', () => {
       clientSecret: baseConfig.discord.clientSecret,
       refreshToken: 'old-refresh',
     })
-    expect(JSON.parse(meResponse.body).identities.discord).toMatchObject({
+    expect(dependencies.discord.fetchUserStats).toHaveBeenNthCalledWith(1, {
+      accessToken: 'old-access',
+      guildId: baseConfig.discord.guildId,
+    })
+    expect(dependencies.discord.fetchUserStats).toHaveBeenNthCalledWith(2, {
+      accessToken: 'new-access-token',
+      guildId: baseConfig.discord.guildId,
+    })
+    expect(dependencies.discord.fetchUserStats).toHaveBeenNthCalledWith(3, {
+      accessToken: 'new-access-token',
+      guildId: baseConfig.discord.guildId,
+    })
+    expect(JSON.parse(firstMeResponse.body).identities.discord).toMatchObject({
       displayName: 'Quest Master',
+      error: null,
       stats: {
         isInTargetServer: true,
       },
+      status: 'active',
       username: 'questmaster',
+    })
+    expect(JSON.parse(secondMeResponse.body).identities.discord).toMatchObject({
+      displayName: 'Quest Master Redux',
+      error: null,
+      stats: {
+        isInTargetServer: false,
+      },
+      status: 'active',
+      username: 'questmasterredux',
     })
   })
 
-  it('refreshes stale GitHub stats during /api/me and preserves cached data on refresh failure', async () => {
+  it('recomputes GitHub stats on every /api/me request and returns reauth_required for invalid credentials', async () => {
     const account = privateKeyToAccount(
       '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
     )
     const store = createMemoryStore([
       {
-        checkedAt: new Date('2026-03-23T00:00:00.000Z'),
         createdAt: new Date('2026-03-23T00:00:00.000Z'),
         displayName: 'Old Quest Master',
-        encryptedAccessToken: encryptSecret('old-github-access', baseConfig.providerTokenEncryptionSecret),
-        expiresAt: new Date('2026-03-23T12:00:00.000Z'),
-        githubAccountCreatedAt: new Date('2020-01-01T00:00:00.000Z'),
-        lastError: null,
+        encryptedAccessToken: encryptSecret(
+          'old-github-access',
+          baseConfig.providerTokenEncryptionSecret,
+        ),
         provider: 'github',
         providerUserId: '123456',
         scope: 'read:user',
-        stats: {
-          isFollowingTargetOrganization: true,
-          isOlderThanOneYear: true,
-          publicNonForkRepositoryCount: 4,
-          targetOrganization: 'vocdoni',
-          targetRepositories: [
-            {
-              fullName: 'vocdoni/davinciNode',
-              isStarred: true,
-            },
-            {
-              fullName: 'vocdoni/davinciSDK',
-              isStarred: false,
-            },
-          ],
-        },
-        status: 'active',
         tokenType: 'bearer',
         updatedAt: new Date('2026-03-23T00:00:00.000Z'),
         username: 'oldquestmaster',
@@ -1172,7 +1224,7 @@ describe('API server', () => {
             userId: '123456',
             username: 'questmaster',
           })
-          .mockRejectedValueOnce(new Error('GitHub API rate limited.')),
+          .mockRejectedValueOnce(new GitHubApiError('Bad credentials', 401)),
       },
       now: () => new Date('2026-03-24T18:00:00.000Z').getTime(),
       onchain: createOnchainDependencies(),
@@ -1195,11 +1247,6 @@ describe('API server', () => {
       method: 'GET',
       url: '/api/me',
     })
-
-    await store.upsertIdentityLink(account.address, 'github', {
-      expiresAt: new Date('2026-03-24T17:00:00.000Z'),
-    })
-
     const secondMeResponse = await performRequest(server, {
       headers: {
         cookie: sessionCookie ?? '',
@@ -1237,47 +1284,43 @@ describe('API server', () => {
           },
         ],
       },
+      status: 'active',
       username: 'questmaster',
     })
     expect(JSON.parse(secondMeResponse.body).identities.github).toMatchObject({
-      error: 'GitHub API rate limited.',
+      displayName: 'Quest Master',
+      error: 'Bad credentials',
       stats: {
-        isFollowingTargetOrganization: true,
-        isOlderThanOneYear: true,
-        publicNonForkRepositoryCount: 9,
+        isFollowingTargetOrganization: null,
+        isOlderThanOneYear: null,
+        publicNonForkRepositoryCount: null,
         targetOrganization: 'vocdoni',
         targetRepositories: [
           {
             fullName: 'vocdoni/davinciNode',
-            isStarred: true,
+            isStarred: null,
           },
           {
             fullName: 'vocdoni/davinciSDK',
-            isStarred: true,
+            isStarred: null,
           },
         ],
       },
+      status: 'reauth_required',
       username: 'questmaster',
     })
   })
 
-  it('preserves cached Telegram stats when a refresh fails', async () => {
+  it('recomputes Telegram stats on every /api/me request and reports live errors without cached fallback', async () => {
     const account = privateKeyToAccount(
       '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
     )
     const store = createMemoryStore([
       {
-        checkedAt: new Date('2026-03-23T00:00:00.000Z'),
         createdAt: new Date('2026-03-23T00:00:00.000Z'),
         displayName: 'Quest Captain',
-        expiresAt: new Date('2026-03-23T12:00:00.000Z'),
-        lastError: null,
         provider: 'telegram',
         providerUserId: '222222222',
-        stats: {
-          isInTargetChannel: true,
-        },
-        status: 'active',
         updatedAt: new Date('2026-03-23T00:00:00.000Z'),
         username: 'questcaptain',
         walletAddress: account.address,
@@ -1294,9 +1337,14 @@ describe('API server', () => {
       store,
       telegram: {
         exchangeAuthorizationCode: vi.fn(),
-        fetchChannelMembership: vi.fn(async () => {
-          throw new Error('Forbidden: bot is not an administrator of the target chat.')
-        }),
+        fetchChannelMembership: vi
+          .fn()
+          .mockResolvedValueOnce({
+            isInTargetChannel: true,
+          })
+          .mockRejectedValueOnce(
+            new Error('Forbidden: bot is not an administrator of the target chat.'),
+          ),
         getOidcConfiguration: vi.fn(),
         verifyIdToken: vi.fn(),
       },
@@ -1304,7 +1352,14 @@ describe('API server', () => {
     }
     const server = createApiServer(baseConfig, dependencies)
     const { sessionCookie } = await authenticateWallet(server, account)
-    const meResponse = await performRequest(server, {
+    const firstMeResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/me',
+    })
+    const secondMeResponse = await performRequest(server, {
       headers: {
         cookie: sessionCookie ?? '',
       },
@@ -1312,30 +1367,29 @@ describe('API server', () => {
       url: '/api/me',
     })
 
-    expect(JSON.parse(meResponse.body).identities.telegram).toMatchObject({
-      error: 'Forbidden: bot is not an administrator of the target chat.',
+    expect(JSON.parse(firstMeResponse.body).identities.telegram).toMatchObject({
+      error: null,
       stats: {
         isInTargetChannel: true,
       },
       userId: '222222222',
       username: 'questcaptain',
     })
+    expect(JSON.parse(secondMeResponse.body).identities.telegram).toMatchObject({
+      error: 'Forbidden: bot is not an administrator of the target chat.',
+      stats: {
+        isInTargetChannel: null,
+      },
+      userId: '222222222',
+      username: 'questcaptain',
+    })
   })
 
-  it('refreshes stale onchain stats during /api/me and keeps cached values on error', async () => {
+  it('recomputes onchain stats on every /api/me request and returns defaults on live errors', async () => {
     const account = privateKeyToAccount(
       '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
     )
     const store = createMemoryStore()
-
-    await store.upsertWalletProfile(account.address, {
-      onchainCheckedAt: new Date('2026-03-23T00:00:00.000Z'),
-      onchainCreatedProcessesCount: 1,
-      onchainExpiresAt: new Date('2026-03-23T12:00:00.000Z'),
-      onchainLastError: null,
-      onchainTotalVotes: '7',
-    })
-
     const onchain = createOnchainDependencies({
       fetchUserStats: vi
         .fn()
@@ -1372,11 +1426,6 @@ describe('API server', () => {
       method: 'GET',
       url: '/api/me',
     })
-
-    await store.upsertWalletProfile(account.address, {
-      onchainExpiresAt: new Date('2026-03-24T17:00:00.000Z'),
-    })
-
     const secondMeResponse = await performRequest(server, {
       headers: {
         cookie: sessionCookie ?? '',
@@ -1394,8 +1443,8 @@ describe('API server', () => {
     })
     expect(JSON.parse(secondMeResponse.body).onchain).toMatchObject({
       error: 'RPC rate limited.',
-      numberOfProcesses: 3,
-      totalVotes: '44',
+      numberOfProcesses: 0,
+      totalVotes: '0',
     })
   })
 })

@@ -73,9 +73,6 @@ Required values:
 - `ONCHAIN_PROCESS_REGISTRY_ADDRESS`
 - `ONCHAIN_PROCESS_REGISTRY_START_BLOCK`
 - `ONCHAIN_RPC_URL`
-- `ONCHAIN_STATS_TTL_SECONDS`
-  - optional in practice
-  - if omitted, the server defaults to `300`
 - `PROVIDER_TOKEN_ENCRYPTION_SECRET`
 - `FRONTEND_APP_URL`
   - use `http://localhost:5173`
