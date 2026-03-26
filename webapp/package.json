@@ -1,13 +1,11 @@
 {
-  "name": "quests-dashboard",
+  "name": "quests-dashboard-webapp",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "api:dev": "node --watch server/index.mjs",
-    "api:start": "node server/index.mjs",
-    "dev": "vite",
     "build": "tsc -b && vite build",
+    "dev": "vite",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
@@ -15,8 +13,8 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.91.2",
+    "@wagmi/core": "^3.4.1",
     "@walletconnect/ethereum-provider": "^2.23.8",
-    "mongodb": "^6.19.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "viem": "^2.47.5",

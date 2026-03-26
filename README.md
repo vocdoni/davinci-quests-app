@@ -2,6 +2,17 @@
 
 This README only covers how to run the project locally.
 
+## Repo Layout
+
+- `webapp/`
+  - Vite + React frontend package
+  - frontend env file lives at `webapp/.env`
+- `server/`
+  - Node API package
+  - source files live in `server/src/`
+  - Docker files live in `server/`
+  - backend env file lives at `server/.env`
+
 ## Prerequisites
 
 - Node.js 20+
@@ -24,20 +35,19 @@ This README only covers how to run the project locally.
 
 There are two example env files in the repo:
 
-- `.env.example`
-- `.env.server.example`
+- `webapp/.env.example`
+- `server/.env.example`
 
 Use them like this:
 
-- `.env`
-  - used by the Vite web app when you run `npm run dev`
-  - also used by Docker Compose as the source for the web image build args
-- `.env.server`
-  - used by the Node API when you run `npm run api:dev` or `npm run api:start`
+- `webapp/.env`
+  - used by the Vite web app when you run `npm run dev` inside `webapp/`
+- `server/.env`
+  - used by the Node API when you run `npm run dev` or `npm run start` inside `server/`
 
-### Frontend Env: `.env`
+### Frontend Env: `webapp/.env`
 
-Create `.env` with the values from `.env.example`.
+Create `webapp/.env` with the values from `webapp/.env.example`.
 
 Required values:
 
@@ -59,9 +69,9 @@ Note:
 - `VITE_TARGET_CHAIN_RPC_URL` is still used by the wallet/network client setup in the browser.
 - If you want to protect a private RPC, put that private endpoint in `ONCHAIN_RPC_URL` on the backend and use a public RPC in `VITE_TARGET_CHAIN_RPC_URL`.
 
-### Backend Env: `.env.server`
+### Backend Env: `server/.env`
 
-Create `.env.server` with the values from `.env.server.example`.
+Create `server/.env` with the values from `server/.env.example`.
 
 Required values:
 
@@ -131,15 +141,16 @@ This is the best path if you want the fastest edit-refresh loop and hot reloadin
 ### 1. Install dependencies
 
 ```bash
-npm install
+cd server && npm install
+cd ../webapp && npm install
 ```
 
 ### 2. Prepare env files
 
 Create:
 
-- `.env`
-- `.env.server`
+- `webapp/.env`
+- `server/.env`
 
 For this setup, make sure your backend env points to Mongo on your host:
 
@@ -151,7 +162,7 @@ MONGODB_DB_NAME=quests_dashboard
 ### 3. Start Mongo only
 
 ```bash
-docker compose up -d mongo
+docker compose -f server/docker-compose.yml --profile local up -d mongo
 ```
 
 Mongo will be available at:
@@ -161,7 +172,7 @@ Mongo will be available at:
 ### 4. Start the API with watch mode
 
 ```bash
-npm run api:dev
+cd server && npm run dev
 ```
 
 The API will be available at:
@@ -174,7 +185,7 @@ The API will be available at:
 In a second terminal:
 
 ```bash
-npm run dev
+cd webapp && npm run dev
 ```
 
 Open:
@@ -184,7 +195,7 @@ Open:
 ### 6. Stop Mongo when you are done
 
 ```bash
-docker compose stop mongo
+docker compose -f server/docker-compose.yml --profile local stop mongo
 ```
 
 ## Option 2: Run Everything Locally Without Docker Compose
@@ -194,15 +205,16 @@ Use this if you already have Mongo available outside Docker.
 ### 1. Install dependencies
 
 ```bash
-npm install
+cd server && npm install
+cd ../webapp && npm install
 ```
 
 ### 2. Prepare env files
 
 Create:
 
-- `.env`
-- `.env.server`
+- `webapp/.env`
+- `server/.env`
 
 Use the example files as the source of truth.
 
@@ -216,7 +228,7 @@ Examples:
 - a hosted MongoDB instance
 - a one-off local Docker container
 
-If you use a local Mongo container or local Mongo service, point `MONGODB_URI` in `.env.server` to that instance.
+If you use a local Mongo container or local Mongo service, point `MONGODB_URI` in `server/.env` to that instance.
 
 Example:
 
@@ -231,7 +243,7 @@ ONCHAIN_RPC_URL=https://eth.llamarpc.com
 ### 4. Start the API
 
 ```bash
-npm run api:dev
+cd server && npm run dev
 ```
 
 The API will be available at:
@@ -244,7 +256,7 @@ The API will be available at:
 In a second terminal:
 
 ```bash
-npm run dev
+cd webapp && npm run dev
 ```
 
 Open:
@@ -259,59 +271,45 @@ Once both processes are running:
 2. Sign in with the wallet.
 3. Connect Discord, GitHub, and Telegram if you configured real provider credentials.
 4. Connect Twitter by generating a proof code, posting it in a tweet, and pasting the tweet URL back into the app.
-5. Verify the linked identity statuses and cached stats load.
+5. Verify the linked identity statuses and live stats load.
 
-## Option 3: Run The Full Local Stack With Docker Compose
+## Option 3: Run The API Container With Docker
 
-This starts:
+Use this if you want to run the server inside Docker while keeping the web app local.
 
-- `web`
-- `api`
-- `mongo`
-
-This is the most production-like local setup, but it does not give you frontend or API hot reload.
-
-### 1. Prepare the two env files
+### 1. Prepare the backend env file
 
 Create:
 
-- `.env`
-- `.env.server`
+- `server/.env`
 
-Compose uses them like this:
+Docker Compose loads `server/.env` into the `api` service with `env_file`.
 
-- `.env`
-  - automatically read by Docker Compose for variable interpolation
-  - supplies the web image build args for the required browser-side `VITE_*` values
-- `.env.server`
-  - loaded into the `api` service with `env_file`
+### 2. Start Mongo locally or use a hosted MongoDB
 
-Important:
-
-- If `.env.server` is missing, the API container will not have the required secrets and provider settings.
-- If `.env` is missing or incomplete, the web image build will fall back to placeholder defaults and may either fail or build with unusable local values.
-
-### 2. Start the stack
+For a local Mongo container:
 
 ```bash
-docker compose up --build
+docker compose -f server/docker-compose.yml --profile local up -d mongo
 ```
 
-### 3. Open the app
-
-- Web app: `http://localhost:5173`
-- API health: `http://localhost:3001/health`
-
-### 4. Stop the stack
+### 3. Start the API container
 
 ```bash
-docker compose down
+docker compose -f server/docker-compose.yml --profile prod up --build api
 ```
 
-To also remove the Mongo volume:
+### 4. Start the web app locally
 
 ```bash
-docker compose down -v
+cd webapp && npm run dev
+```
+
+### 5. Stop the containers
+
+```bash
+docker compose -f server/docker-compose.yml --profile prod down
+docker compose -f server/docker-compose.yml --profile local stop mongo
 ```
 
 ## Useful Commands
@@ -319,25 +317,26 @@ docker compose down -v
 Run tests:
 
 ```bash
-npm test
+cd server && npm test
+cd ../webapp && npm test
 ```
 
 Run lint:
 
 ```bash
-npm run lint
+cd webapp && npm run lint
 ```
 
 Build the web app:
 
 ```bash
-npm run build
+cd webapp && npm run build
 ```
 
 Validate the Compose file:
 
 ```bash
-docker compose config
+docker compose -f server/docker-compose.yml --profile local config
 ```
 
 ## Local Troubleshooting
@@ -368,4 +367,4 @@ Check:
 
 ### Compose starts but social linking still fails
 
-That usually means the stack is healthy but still using placeholder provider values. Add real Discord, GitHub, and Telegram credentials to `.env.server` and restart the stack.
+That usually means the stack is healthy but still using placeholder provider values. Add real Discord, GitHub, and Telegram credentials to `server/.env` and restart the stack.

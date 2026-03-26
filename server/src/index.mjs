@@ -1,5 +1,6 @@
 import { createServer } from 'node:http'
-import { pathToFileURL } from 'node:url'
+import { resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { getAddress, isAddress, verifyMessage } from 'viem'
 import { loadDotEnvFiles } from './dotenv.mjs'
 import { parseServerConfig } from './config.mjs'
@@ -219,6 +220,12 @@ function buildDefaultOnchain() {
   }
 }
 
+function getDiscordLastKnownMembership(link) {
+  return typeof link?.discordLastKnownIsInTargetServer === 'boolean'
+    ? link.discordLastKnownIsInTargetServer
+    : null
+}
+
 function normalizeTimestamp(value) {
   if (!value) {
     return null
@@ -272,6 +279,7 @@ async function persistDiscordLink(config, dependencies, walletAddress, tokenResp
   }
 
   return dependencies.store.upsertIdentityLink(walletAddress, 'discord', {
+    discordLastKnownIsInTargetServer: stats.isInTargetServer,
     displayName: stats.displayName ?? null,
     encryptedAccessToken: encryptSecret(
       tokenResponse.accessToken,
@@ -369,6 +377,7 @@ async function resolveDiscordIdentity(config, dependencies, link) {
     return buildDefaultIdentity('discord')
   }
 
+  const lastKnownMembership = getDiscordLastKnownMembership(link)
   let accessToken
 
   try {
@@ -379,7 +388,7 @@ async function resolveDiscordIdentity(config, dependencies, link) {
   } catch (error) {
     return buildConnectedIdentity('discord', link, {
       error: getErrorMessage(error),
-      stats: { isInTargetServer: null },
+      stats: { isInTargetServer: lastKnownMembership },
       status: 'reauth_required',
     })
   }
@@ -390,6 +399,7 @@ async function resolveDiscordIdentity(config, dependencies, link) {
       guildId: config.discord.guildId,
     })
     const nextLink = await dependencies.store.upsertIdentityLink(link.walletAddress, 'discord', {
+      discordLastKnownIsInTargetServer: stats.isInTargetServer,
       displayName: stats.displayName ?? null,
       providerUserId: stats.userId,
       username: stats.username ?? null,
@@ -407,7 +417,7 @@ async function resolveDiscordIdentity(config, dependencies, link) {
     if (!(error instanceof DiscordApiError) || (error.status !== 400 && error.status !== 401)) {
       return buildConnectedIdentity('discord', link, {
         error: getErrorMessage(error),
-        stats: { isInTargetServer: null },
+        stats: { isInTargetServer: lastKnownMembership },
         status: 'error',
       })
     }
@@ -423,7 +433,7 @@ async function resolveDiscordIdentity(config, dependencies, link) {
   } catch (error) {
     return buildConnectedIdentity('discord', link, {
       error: getErrorMessage(error),
-      stats: { isInTargetServer: null },
+      stats: { isInTargetServer: lastKnownMembership },
       status: 'reauth_required',
     })
   }
@@ -457,7 +467,7 @@ async function resolveDiscordIdentity(config, dependencies, link) {
   } catch (error) {
     return buildConnectedIdentity('discord', link, {
       error: getErrorMessage(error),
-      stats: { isInTargetServer: null },
+      stats: { isInTargetServer: lastKnownMembership },
       status:
         error instanceof DiscordApiError && (error.status === 400 || error.status === 401)
           ? 'reauth_required'
@@ -1379,9 +1389,9 @@ const isDirectRun =
   pathToFileURL(process.argv[1]).href === import.meta.url
 
 if (isDirectRun) {
-  loadDotEnvFiles(process.cwd(), [
-    '.env.server',
-    '.env.server.local',
+  const serverRoot = fileURLToPath(new URL('..', import.meta.url))
+
+  loadDotEnvFiles(serverRoot, [
     '.env',
     '.env.local',
   ])

@@ -626,6 +626,10 @@ function App({ config }: AppProps) {
   const signedAddress = session.sessionWalletAddress ?? wallet.address ?? null
   const questAchievementContext = buildQuestAchievementContext(session.profile)
   const activeQuestList = quests.data?.[selectedQuestRole] ?? []
+  const allQuestLists: Record<QuestRole, typeof activeQuestList> = {
+    builders: quests.data?.builders ?? [],
+    supporters: quests.data?.supporters ?? [],
+  }
   const questCounts: Record<QuestRole, number> = {
     builders: quests.data?.builders.length ?? 0,
     supporters: quests.data?.supporters.length ?? 0,
@@ -634,12 +638,36 @@ function App({ config }: AppProps) {
     ...quest,
     isCompleted: evaluateQuestAchievement(quest.achievement, questAchievementContext),
   }))
-  const completedQuestCount = resolvedQuests.filter((quest) => quest.isCompleted).length
-  const earnedQuestPoints = resolvedQuests.reduce(
-    (total, quest) => total + (quest.isCompleted ? quest.points : 0),
-    0,
+  const questProgressByRole = (['supporters', 'builders'] as QuestRole[]).reduce(
+    (progress, role) => {
+      const questsForRole = allQuestLists[role].map((quest) => ({
+        ...quest,
+        isCompleted: evaluateQuestAchievement(quest.achievement, questAchievementContext),
+      }))
+
+      progress[role] = {
+        completedCount: questsForRole.filter((quest) => quest.isCompleted).length,
+        earnedPoints: questsForRole.reduce(
+          (total, quest) => total + (quest.isCompleted ? quest.points : 0),
+          0,
+        ),
+        totalCount: questsForRole.length,
+      }
+
+      return progress
+    },
+    {} as Record<
+      QuestRole,
+      {
+        completedCount: number
+        earnedPoints: number
+        totalCount: number
+      }
+    >,
   )
-  const totalQuestPoints = resolvedQuests.reduce((total, quest) => total + quest.points, 0)
+  const totalEarnedQuestPoints =
+    questProgressByRole.supporters.earnedPoints + questProgressByRole.builders.earnedPoints
+  const isGithubConnected = Boolean(session.profile?.identities.github.connected)
   const questLoadingMessage = quests.isPending ? 'Loading quests...' : null
   const questErrorMessage =
     quests.error instanceof Error ? quests.error.message : 'Quests could not be loaded right now.'
@@ -911,6 +939,42 @@ function App({ config }: AppProps) {
               </div>
             </div>
 
+            <div
+              className={`quest-overview-bar ${isGithubConnected ? '' : 'is-builders-hidden'}`.trim()}
+            >
+              <div className="quest-overview-metric">
+                <span className="quest-overview-label">Supporters</span>
+                <span className="quest-overview-value">
+                  {questProgressByRole.supporters.completedCount}/
+                  {questProgressByRole.supporters.totalCount} completed
+                </span>
+                <span className="quest-overview-meta">
+                  {questProgressByRole.supporters.earnedPoints} pts earned
+                </span>
+              </div>
+
+              {isGithubConnected ? (
+                <div className="quest-overview-metric">
+                  <span className="quest-overview-label">Builders</span>
+                  <span className="quest-overview-value">
+                    {questProgressByRole.builders.completedCount}/
+                    {questProgressByRole.builders.totalCount} completed
+                  </span>
+                  <span className="quest-overview-meta">
+                    {questProgressByRole.builders.earnedPoints} pts earned
+                  </span>
+                </div>
+              ) : null}
+
+              <div className="quest-overview-metric is-total">
+                <span className="quest-overview-label">Total</span>
+                <span className="quest-overview-value">
+                  {totalEarnedQuestPoints} pts
+                </span>
+                <span className="quest-overview-meta">earned across all roles</span>
+              </div>
+            </div>
+
             <div className="content-panel page-panel">
               <div className="quest-summary-row">
                 <div className="quest-summary-copy">
@@ -935,12 +999,6 @@ function App({ config }: AppProps) {
                       </button>
                     </div>
                   ) : null}
-                </div>
-
-                <div className="quest-progress-pill">
-                  {completedQuestCount}/{resolvedQuests.length} completed
-                  <span className="quest-progress-separator">•</span>
-                  {earnedQuestPoints}/{totalQuestPoints} pts
                 </div>
               </div>
 

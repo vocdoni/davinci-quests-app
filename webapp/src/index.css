@@ -1,0 +1,74 @@
+@import url('https://fonts.googleapis.com/css2?family=Averia+Libre:wght@400;700&family=Work+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+  color-scheme: light;
+  color: #3b2b21;
+  font-family: 'Work Sans', sans-serif;
+  font-synthesis: none;
+  font-weight: 500;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: antialiased;
+  --color-paper: #f7ead5;
+  --color-paper-alt: #ebd2b2;
+  --color-ink: #3b2b21;
+  --color-muted: #6f5f51;
+  --color-accent: #3b2b21;
+  --color-accent-soft: #d6c3a8;
+  --color-card: rgba(248, 239, 225, 0.92);
+  --color-card-strong: #fff8ee;
+  --color-border: rgba(193, 223, 205, 0.72);
+  --color-shadow: 0 18px 44px rgba(59, 43, 33, 0.14);
+  --color-highlight: #c5c8f7;
+  --color-highlight-soft: #d9faff;
+  --color-ok: #4d7a60;
+  --color-danger: #9b4f3b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(239, 214, 182, 0.72), transparent 24%),
+    radial-gradient(circle at top right, rgba(230, 193, 161, 0.52), transparent 28%),
+    linear-gradient(180deg, #fcf5ea 0%, var(--color-paper) 34%, var(--color-paper-alt) 100%);
+  color: var(--color-ink);
+  margin: 0;
+  min-height: 100vh;
+}
+
+body::before {
+  background-image: radial-gradient(rgba(59, 43, 33, 0.09) 0.8px, transparent 0.8px);
+  background-size: 18px 18px;
+  content: '';
+  inset: 0;
+  opacity: 0.16;
+  pointer-events: none;
+  position: fixed;
+}
+
+a {
+  color: inherit;
+  text-decoration-color: rgba(59, 43, 33, 0.32);
+  text-underline-offset: 0.16em;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+#root {
+  isolation: isolate;
+  min-height: 100vh;
+  position: relative;
+}

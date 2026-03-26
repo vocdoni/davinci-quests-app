@@ -1173,6 +1173,69 @@ describe('API server', () => {
     })
   })
 
+  it('preserves the last known Discord membership when a live refresh fails', async () => {
+    const account = privateKeyToAccount(
+      '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
+    )
+    const store = createMemoryStore([
+      {
+        createdAt: new Date('2026-03-23T00:00:00.000Z'),
+        discordLastKnownIsInTargetServer: true,
+        displayName: 'Quest Master',
+        encryptedAccessToken: encryptSecret('live-access', baseConfig.providerTokenEncryptionSecret),
+        encryptedRefreshToken: encryptSecret(
+          'live-refresh',
+          baseConfig.providerTokenEncryptionSecret,
+        ),
+        provider: 'discord',
+        providerUserId: '111111111111111111',
+        scope: 'identify guilds.members.read',
+        updatedAt: new Date('2026-03-23T00:00:00.000Z'),
+        username: 'questmaster',
+        walletAddress: account.address,
+      },
+    ])
+    const dependencies = {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(async () => {
+          throw new DiscordApiError('Rate limited', 429)
+        }),
+        refreshAccessToken: vi.fn(),
+      },
+      now: () => new Date('2026-03-24T18:00:00.000Z').getTime(),
+      onchain: createOnchainDependencies(),
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    }
+    const server = createApiServer(baseConfig, dependencies)
+    const sessionTokenResponse = await authenticateWallet(server, account)
+    const meResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionTokenResponse.sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/me',
+    })
+
+    expect(meResponse.statusCode).toBe(200)
+    expect(JSON.parse(meResponse.body).identities.discord).toMatchObject({
+      displayName: 'Quest Master',
+      error: 'Rate limited',
+      stats: {
+        isInTargetServer: true,
+      },
+      status: 'error',
+      username: 'questmaster',
+    })
+  })
+
   it('recomputes GitHub stats on every /api/me request and returns reauth_required for invalid credentials', async () => {
     const account = privateKeyToAccount(
       '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',

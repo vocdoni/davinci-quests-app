@@ -470,6 +470,126 @@ describe('App', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows a cross-role quest summary bar with supporter, builder, and total points', () => {
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile({
+          identities: {
+            discord: {
+              connected: true,
+              displayName: 'Quest Master',
+              error: null,
+              stats: {
+                isInTargetServer: true,
+              },
+              status: 'active',
+              userId: '111111111111111111',
+              username: 'questmaster',
+            },
+            github: {
+              connected: true,
+              displayName: 'Quest Coder',
+              error: null,
+              stats: {
+                isFollowingTargetOrganization: true,
+                isOlderThanOneYear: true,
+                publicNonForkRepositoryCount: 12,
+                targetOrganization: 'vocdoni',
+                targetRepositories: [
+                  {
+                    fullName: 'vocdoni/davinciNode',
+                    isStarred: true,
+                  },
+                  {
+                    fullName: 'vocdoni/davinciSDK',
+                    isStarred: false,
+                  },
+                ],
+              },
+              status: 'active',
+              userId: '333333',
+              username: 'questcoder',
+            },
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    expect(
+      screen.getByText('Supporters', { selector: '.quest-overview-label' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('1/1 completed')).toBeInTheDocument()
+    expect(screen.getByText('100 pts earned')).toBeInTheDocument()
+    expect(
+      screen.getByText('Builders', { selector: '.quest-overview-label' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('1/2 completed')).toBeInTheDocument()
+    expect(screen.getByText('320 pts earned')).toBeInTheDocument()
+    expect(
+      screen.getByText('Total', { selector: '.quest-overview-label' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('420 pts')).toBeInTheDocument()
+  })
+
+  it('hides the builders summary metric until GitHub is connected', () => {
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile({
+          identities: {
+            discord: {
+              connected: true,
+              displayName: 'Quest Supporter',
+              error: null,
+              stats: {
+                isInTargetServer: true,
+              },
+              status: 'active',
+              userId: '222222',
+              username: 'questsupporter',
+            },
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    expect(
+      screen.getByText('Supporters', { selector: '.quest-overview-label' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('1/1 completed')).toBeInTheDocument()
+    expect(screen.getByText('100 pts earned')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Builders', { selector: '.quest-overview-label' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Total', { selector: '.quest-overview-label' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('100 pts', { selector: '.quest-overview-value' }),
+    ).toBeInTheDocument()
+  })
+
   it('offers a profile shortcut from the locked builder card', async () => {
     const user = userEvent.setup()
 

@@ -9,6 +9,6 @@ export default defineConfig({
     setupFiles: './src/test/setup.ts',
   },
   server: {
-    allowedHosts: ["ping.myapp.casa"]
+    allowedHosts: ['ping.myapp.casa'],
   },
 })
