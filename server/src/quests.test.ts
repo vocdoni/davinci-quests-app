@@ -90,4 +90,8 @@ describe('quest catalog helpers', () => {
       ],
     })
   })
+
+  it('falls back to the bundled catalog for the legacy ./src/quests.json path', () => {
+    expect(loadQuestCatalog('./src/quests.json')).toEqual(loadQuestCatalog())
+  })
 })

@@ -1,10 +1,11 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const QUEST_ROLES = ['builders', 'supporters']
 const DEFAULT_QUESTS_FILE_URL = new URL('../quests.json', import.meta.url)
 const DEFAULT_QUESTS_FILE_PATH = fileURLToPath(DEFAULT_QUESTS_FILE_URL)
+const LEGACY_DEFAULT_QUESTS_FILE_PATH = normalize('./src/quests.json')
 
 function assertQuestRole(role) {
   if (!QUEST_ROLES.includes(role)) {
@@ -83,7 +84,17 @@ function resolveQuestCatalogPath(filePath) {
     return DEFAULT_QUESTS_FILE_PATH
   }
 
-  return resolve(process.cwd(), filePath)
+  const resolvedPath = resolve(process.cwd(), filePath)
+
+  if (existsSync(resolvedPath)) {
+    return resolvedPath
+  }
+
+  if (normalize(filePath) === LEGACY_DEFAULT_QUESTS_FILE_PATH) {
+    return DEFAULT_QUESTS_FILE_PATH
+  }
+
+  return resolvedPath
 }
 
 export function loadQuestCatalog(filePath = null) {
