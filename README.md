@@ -83,11 +83,18 @@ Required values:
 - `ONCHAIN_PROCESS_REGISTRY_ADDRESS`
 - `ONCHAIN_PROCESS_REGISTRY_START_BLOCK`
 - `ONCHAIN_RPC_URL`
+- `QUESTS_FILE_PATH`
+  - optional override for the quest catalog JSON file
+  - default local value can stay `./quests.json`
+  - if you run the API in Docker, keep the file inside `server/` so the image copies it
 - `PROVIDER_TOKEN_ENCRYPTION_SECRET`
 - `FRONTEND_APP_URL`
   - use `http://localhost:5173`
 - `PORT`
   - use `3001`
+- `TRAEFIK_API_DOMAIN`
+  - Docker production hostname used by the Traefik router rule
+  - example: `quests-api.davinci.ninja`
 
 Discord values:
 
@@ -296,7 +303,7 @@ docker compose -f server/docker-compose.yml --profile local up -d mongo
 ### 3. Start the API container
 
 ```bash
-docker compose -f server/docker-compose.yml --profile prod up --build api
+docker compose --env-file server/.env -f server/docker-compose.yml --profile prod up --build api
 ```
 
 ### 4. Start the web app locally
@@ -336,7 +343,7 @@ cd webapp && npm run build
 Validate the Compose file:
 
 ```bash
-docker compose -f server/docker-compose.yml --profile local config
+docker compose --env-file server/.env -f server/docker-compose.yml --profile local config
 ```
 
 ## Local Troubleshooting

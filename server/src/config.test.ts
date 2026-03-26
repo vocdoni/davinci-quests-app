@@ -73,6 +73,7 @@ describe('parseServerConfig', () => {
         rpcUrl: 'https://rpc.example.org/',
         startBlock: 12345n,
       },
+      questCatalogPath: null,
       providerTokenEncryptionSecret: 'provider-secret',
       telegram: {
         botToken: '123456:telegram-bot-token',
@@ -89,5 +90,15 @@ describe('parseServerConfig', () => {
     expect(() => parseServerConfig({})).toThrow(
       'Missing required environment variables: APP_SESSION_SECRET, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI, FRONTEND_APP_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI, GITHUB_TARGET_ORGANIZATION, GITHUB_TARGET_REPOSITORIES, MONGODB_DB_NAME, MONGODB_URI, ONCHAIN_PROCESS_REGISTRY_ADDRESS, ONCHAIN_PROCESS_REGISTRY_START_BLOCK, ONCHAIN_RPC_URL, PROVIDER_TOKEN_ENCRYPTION_SECRET, TELEGRAM_APP_JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_USERNAME, TELEGRAM_CLIENT_ID, TELEGRAM_CLIENT_SECRET, TELEGRAM_REDIRECT_URI',
     )
+  })
+
+  it('accepts an optional quest catalog path override', () => {
+    const config = parseServerConfig(
+      createEnv({
+        QUESTS_FILE_PATH: './data/custom-quests.json',
+      }),
+    )
+
+    expect(config.questCatalogPath).toBe('./data/custom-quests.json')
   })
 })

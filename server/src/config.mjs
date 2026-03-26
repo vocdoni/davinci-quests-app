@@ -208,6 +208,7 @@ export function parseServerConfig(env = process.env) {
       env,
       'PROVIDER_TOKEN_ENCRYPTION_SECRET',
     ),
+    questCatalogPath: readOptionalString(env, 'QUESTS_FILE_PATH'),
     secureCookies:
       readOptionalString(env, 'COOKIE_SECURE') === 'true' ||
       new URL(frontendAppUrl).protocol === 'https:',

@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const QUEST_ROLES = ['builders', 'supporters']
-const DEFAULT_QUESTS_FILE_URL = new URL('./quests.json', import.meta.url)
+const DEFAULT_QUESTS_FILE_URL = new URL('../quests.json', import.meta.url)
+const DEFAULT_QUESTS_FILE_PATH = fileURLToPath(DEFAULT_QUESTS_FILE_URL)
 
 function assertQuestRole(role) {
   if (!QUEST_ROLES.includes(role)) {
@@ -75,8 +78,16 @@ export function normalizeQuestCatalog(value) {
   }
 }
 
-export function loadQuestCatalog(fileUrl = DEFAULT_QUESTS_FILE_URL) {
-  const fileContents = readFileSync(fileUrl, 'utf8')
+function resolveQuestCatalogPath(filePath) {
+  if (!filePath) {
+    return DEFAULT_QUESTS_FILE_PATH
+  }
+
+  return resolve(process.cwd(), filePath)
+}
+
+export function loadQuestCatalog(filePath = null) {
+  const fileContents = readFileSync(resolveQuestCatalogPath(filePath), 'utf8')
   const parsed = JSON.parse(fileContents)
 
   return normalizeQuestCatalog(parsed)

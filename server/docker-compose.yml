@@ -18,33 +18,37 @@ services:
       - "3001"
     labels:
       - traefik.enable=true
-      - traefik.http.routers.quests-api.rule=Host(`quests-api.davinci.ninja`)
+      - traefik.http.routers.quests-api.rule=Host(`${TRAEFIK_API_DOMAIN:-quests-api.davinci.ninja}`)
       - traefik.http.routers.quests-api.entrypoints=websecure
       - traefik.http.routers.quests-api.tls=true
+      - traefik.http.routers.quests-api.tls.certresolver=le
       - traefik.http.services.quests-api.loadbalancer.server.port=3001
     restart: unless-stopped
   
   traefik:
     profiles:
       - prod
-    image: traefik:v3.3
     container_name: traefik
-    command:
-      - --api.dashboard=false
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.file.filename=/etc/traefik/dynamic/tls.yml
-      - --entrypoints.web.address=:80
-      - --entrypoints.websecure.address=:443
-      - --entrypoints.web.http.redirections.entrypoint.to=websecure
-      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+    image: traefik:latest
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/dynamic:/etc/traefik/dynamic:ro
-      - ./traefik/certs:/certs:ro
+      - "./letsencrypt:/letsencrypt"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    command:
+      - "--log.level=INFO"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.le.acme.httpchallenge=true"
+      - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.le.acme.email=root@vocdoni.io"
+      - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
     restart: unless-stopped
 
   mongo:

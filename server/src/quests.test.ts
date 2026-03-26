@@ -1,5 +1,8 @@
 // @vitest-environment node
 
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { loadQuestCatalog, normalizeQuestCatalog } from './quests.mjs'
 
@@ -52,5 +55,39 @@ describe('quest catalog helpers', () => {
         ],
       }),
     ).toThrow('must define an achievement expression')
+  })
+
+  it('loads a custom quest catalog from an env-style file path', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'quests-catalog-'))
+    const customCatalogPath = join(tempDir, 'quests.json')
+
+    writeFileSync(
+      customCatalogPath,
+      JSON.stringify({
+        builders: [],
+        supporters: [
+          {
+            achievement: 'discord.isInTargetServer == true',
+            description: 'Custom supporter quest',
+            id: 1,
+            points: 25,
+            title: 'Custom supporter quest',
+          },
+        ],
+      }),
+    )
+
+    expect(loadQuestCatalog(customCatalogPath)).toEqual({
+      builders: [],
+      supporters: [
+        {
+          achievement: 'discord.isInTargetServer == true',
+          description: 'Custom supporter quest',
+          id: 1,
+          points: 25,
+          title: 'Custom supporter quest',
+        },
+      ],
+    })
   })
 })

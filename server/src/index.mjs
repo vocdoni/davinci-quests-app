@@ -1397,7 +1397,7 @@ if (isDirectRun) {
   ])
 
   const config = parseServerConfig(process.env)
-  const questCatalog = loadQuestCatalog()
+  const questCatalog = loadQuestCatalog(config.questCatalogPath)
   const store = await createMongoIdentityStore(config)
   const server = createApiServer(
     config,
