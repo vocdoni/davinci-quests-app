@@ -11,6 +11,19 @@ export async function createMongoIdentityStore(config) {
 
   await Promise.all([
     walletProfiles.createIndex({ walletAddress: 1 }, { unique: true }),
+    walletProfiles.createIndex(
+      {
+        'scoreSnapshot.totalPoints': -1,
+        'scoreSnapshot.buildersPoints': -1,
+        'scoreSnapshot.supportersPoints': -1,
+        walletAddress: 1,
+      },
+      {
+        partialFilterExpression: {
+          lastAuthenticatedAt: { $exists: true },
+        },
+      },
+    ),
     identityLinks.createIndex({ walletAddress: 1, provider: 1 }, { unique: true }),
     identityLinks.createIndex(
       { provider: 1, providerUserId: 1 },
@@ -46,6 +59,21 @@ export async function createMongoIdentityStore(config) {
 
     async listIdentityLinks(walletAddress) {
       return identityLinks.find({ walletAddress }).toArray()
+    },
+
+    async listLeaderboardWalletProfiles(limit) {
+      return walletProfiles
+        .find({
+          lastAuthenticatedAt: { $exists: true },
+        })
+        .sort({
+          'scoreSnapshot.totalPoints': -1,
+          'scoreSnapshot.buildersPoints': -1,
+          'scoreSnapshot.supportersPoints': -1,
+          walletAddress: 1,
+        })
+        .limit(limit)
+        .toArray()
     },
 
     async upsertIdentityLink(walletAddress, provider, nextFields) {

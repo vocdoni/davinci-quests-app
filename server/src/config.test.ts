@@ -10,6 +10,7 @@ function createEnv(overrides = {}) {
     DISCORD_CLIENT_SECRET: 'discord-client-secret',
     DISCORD_GUILD_ID: '987654321098765432',
     DISCORD_REDIRECT_URI: 'https://api.example.org/api/connections/discord/callback',
+    ENS_RPC_URL: 'https://ens.example.org',
     FRONTEND_APP_URL: 'https://app.example.org',
     GITHUB_CLIENT_ID: 'github-client-id',
     GITHUB_CLIENT_SECRET: 'github-client-secret',
@@ -43,6 +44,9 @@ describe('parseServerConfig', () => {
         clientSecret: 'discord-client-secret',
         guildId: '987654321098765432',
         redirectUri: 'https://api.example.org/api/connections/discord/callback',
+      },
+      ens: {
+        rpcUrl: 'https://ens.example.org/',
       },
       frontendAppUrl: 'https://app.example.org/',
       frontendOrigin: 'https://app.example.org',
@@ -88,7 +92,7 @@ describe('parseServerConfig', () => {
 
   it('reports all missing backend variables together', () => {
     expect(() => parseServerConfig({})).toThrow(
-      'Missing required environment variables: APP_SESSION_SECRET, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI, FRONTEND_APP_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI, GITHUB_TARGET_ORGANIZATION, GITHUB_TARGET_REPOSITORIES, MONGODB_DB_NAME, MONGODB_URI, ONCHAIN_PROCESS_REGISTRY_ADDRESS, ONCHAIN_PROCESS_REGISTRY_START_BLOCK, ONCHAIN_RPC_URL, PROVIDER_TOKEN_ENCRYPTION_SECRET, TELEGRAM_APP_JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_USERNAME, TELEGRAM_CLIENT_ID, TELEGRAM_CLIENT_SECRET, TELEGRAM_REDIRECT_URI',
+      'Missing required environment variables: APP_SESSION_SECRET, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI, ENS_RPC_URL, FRONTEND_APP_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI, GITHUB_TARGET_ORGANIZATION, GITHUB_TARGET_REPOSITORIES, MONGODB_DB_NAME, MONGODB_URI, ONCHAIN_PROCESS_REGISTRY_ADDRESS, ONCHAIN_PROCESS_REGISTRY_START_BLOCK, ONCHAIN_RPC_URL, PROVIDER_TOKEN_ENCRYPTION_SECRET, TELEGRAM_APP_JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_USERNAME, TELEGRAM_CLIENT_ID, TELEGRAM_CLIENT_SECRET, TELEGRAM_REDIRECT_URI',
     )
   })
 

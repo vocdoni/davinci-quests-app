@@ -69,8 +69,19 @@ describe('quest achievement helpers', () => {
         numberOfProcesses: 0,
         totalVotes: '0',
       },
+      score: {
+        builderCompletedCount: 0,
+        builderCompletedQuestIds: [],
+        buildersPoints: 0,
+        lastComputedAt: null,
+        supporterCompletedCount: 0,
+        supporterCompletedQuestIds: [],
+        supportersPoints: 0,
+        totalPoints: 0,
+      },
       wallet: {
         address: '0x123400000000000000000000000000000000abcd',
+        ensName: null,
       },
     })
 

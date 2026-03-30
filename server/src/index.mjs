@@ -29,8 +29,14 @@ import {
   setCorsHeaders,
 } from './http.mjs'
 import { createMongoIdentityStore } from './mongo.mjs'
+import { createEnsDependencies } from './ens.mjs'
 import { createOnchainStatsDependencies } from './processRegistry.mjs'
 import { loadQuestCatalog } from './quests.mjs'
+import {
+  areScoreSnapshotsEqual,
+  buildDefaultScoreSnapshot,
+  buildScoreSnapshot,
+} from './scoring.mjs'
 import {
   buildWalletSignInMessage,
   createAppSessionToken,
@@ -61,6 +67,9 @@ import {
 } from './twitter.mjs'
 
 const APP_SESSION_COOKIE_NAME = 'quests_dashboard_app_session'
+const LEADERBOARD_MAX_LIMIT = 100
+const LEADERBOARD_DEFAULT_LIMIT = 100
+const PROFILE_SNAPSHOT_TTL_MS = 15 * 60 * 1000
 const WALLET_CHALLENGE_COOKIE_NAME = 'quests_dashboard_wallet_challenge'
 const TWITTER_CODE_TTL_MS = 5 * 60 * 1000
 
@@ -220,6 +229,10 @@ function buildDefaultOnchain() {
   }
 }
 
+function buildDefaultScore() {
+  return buildDefaultScoreSnapshot()
+}
+
 function getDiscordLastKnownMembership(link) {
   return typeof link?.discordLastKnownIsInTargetServer === 'boolean'
     ? link.discordLastKnownIsInTargetServer
@@ -250,14 +263,122 @@ function buildConnectedIdentity(provider, link, options = {}, githubConfig = nul
   }
 }
 
-function buildProfileResponse(walletAddress, identities, onchain) {
+function normalizeStoredOnchainSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') {
+    return buildDefaultOnchain()
+  }
+
+  return {
+    error: typeof snapshot.error === 'string' ? snapshot.error : null,
+    numberOfProcesses:
+      Number.isInteger(snapshot.numberOfProcesses) && snapshot.numberOfProcesses >= 0
+        ? snapshot.numberOfProcesses
+        : 0,
+    totalVotes: typeof snapshot.totalVotes === 'string' ? snapshot.totalVotes : '0',
+  }
+}
+
+function normalizeStoredScoreSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') {
+    return buildDefaultScore()
+  }
+
+  return {
+    builderCompletedCount:
+      Number.isInteger(snapshot.builderCompletedCount) && snapshot.builderCompletedCount >= 0
+        ? snapshot.builderCompletedCount
+        : 0,
+    builderCompletedQuestIds: Array.isArray(snapshot.builderCompletedQuestIds)
+      ? snapshot.builderCompletedQuestIds.filter((value) => Number.isInteger(value))
+      : [],
+    buildersPoints:
+      Number.isInteger(snapshot.buildersPoints) && snapshot.buildersPoints >= 0
+        ? snapshot.buildersPoints
+        : 0,
+    lastComputedAt: snapshot.lastComputedAt ?? null,
+    supporterCompletedCount:
+      Number.isInteger(snapshot.supporterCompletedCount) && snapshot.supporterCompletedCount >= 0
+        ? snapshot.supporterCompletedCount
+        : 0,
+    supporterCompletedQuestIds: Array.isArray(snapshot.supporterCompletedQuestIds)
+      ? snapshot.supporterCompletedQuestIds.filter((value) => Number.isInteger(value))
+      : [],
+    supportersPoints:
+      Number.isInteger(snapshot.supportersPoints) && snapshot.supportersPoints >= 0
+        ? snapshot.supportersPoints
+        : 0,
+    totalPoints:
+      Number.isInteger(snapshot.totalPoints) && snapshot.totalPoints >= 0
+        ? snapshot.totalPoints
+        : 0,
+  }
+}
+
+function isSnapshotStale(value, now) {
+  const timestamp = normalizeTimestamp(value)
+
+  if (timestamp === null) {
+    return true
+  }
+
+  return now - timestamp >= PROFILE_SNAPSHOT_TTL_MS
+}
+
+function trimWalletAddress(walletAddress) {
+  return `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+}
+
+function buildWalletResponse(walletAddress, walletProfile = null) {
+  return {
+    address: walletAddress,
+    ensName: typeof walletProfile?.ensName === 'string' ? walletProfile.ensName : null,
+  }
+}
+
+function buildProfileResponse(walletAddress, walletProfile, identities, onchain, score) {
   return {
     identities,
     onchain,
+    score,
     wallet: {
-      address: walletAddress,
+      ...buildWalletResponse(walletAddress, walletProfile),
     },
   }
+}
+
+function buildLeaderboardRow(walletProfile, rank) {
+  const scoreSnapshot = normalizeStoredScoreSnapshot(walletProfile.scoreSnapshot)
+  const ensName = typeof walletProfile.ensName === 'string' ? walletProfile.ensName : null
+
+  return {
+    buildersPoints: scoreSnapshot.buildersPoints,
+    displayName: ensName ?? trimWalletAddress(walletProfile.walletAddress),
+    ensName,
+    lastComputedAt: scoreSnapshot.lastComputedAt,
+    rank,
+    supportersPoints: scoreSnapshot.supportersPoints,
+    totalPoints: scoreSnapshot.totalPoints,
+    walletAddress: walletProfile.walletAddress,
+  }
+}
+
+function parseLeaderboardLimit(requestUrl) {
+  const rawLimit = requestUrl.searchParams.get('limit')
+
+  if (!rawLimit) {
+    return LEADERBOARD_DEFAULT_LIMIT
+  }
+
+  const limit = Number(rawLimit)
+
+  if (!Number.isInteger(limit) || limit < 1 || limit > LEADERBOARD_MAX_LIMIT) {
+    throw new RequestError(
+      `Leaderboard limit must be an integer between 1 and ${LEADERBOARD_MAX_LIMIT}.`,
+      400,
+    )
+  }
+
+  return limit
 }
 
 async function readRequestJson(response, request) {
@@ -602,7 +723,139 @@ async function resolveOnchainProfile(dependencies, walletAddress) {
   }
 }
 
+async function resolveProfileIdentities(config, dependencies, walletAddress, links) {
+  const linkMap = new Map(links.map((link) => [link.provider, link]))
+  const [discord, github, telegram, twitter] = await Promise.all([
+    resolveDiscordIdentity(config, dependencies, linkMap.get('discord') ?? null),
+    resolveGitHubIdentity(config, dependencies, linkMap.get('github') ?? null),
+    resolveTelegramIdentity(config, dependencies, linkMap.get('telegram') ?? null),
+    Promise.resolve(resolveTwitterIdentity(linkMap.get('twitter') ?? null)),
+  ])
+
+  return {
+    discord,
+    github,
+    telegram,
+    twitter,
+  }
+}
+
+async function resolveEnsProfile(dependencies, walletAddress) {
+  if (!dependencies.ens || typeof dependencies.ens.resolveEnsName !== 'function') {
+    return null
+  }
+
+  return dependencies.ens.resolveEnsName(walletAddress)
+}
+
+async function synchronizeWalletProfileSnapshot(
+  config,
+  dependencies,
+  questCatalog,
+  walletAddress,
+  options = {},
+) {
+  const now = dependencies.now()
+  const walletProfile =
+    options.walletProfile ?? (await dependencies.store.getWalletProfile(walletAddress))
+  const links = options.links ?? (await dependencies.store.listIdentityLinks(walletAddress))
+  const identities = await resolveProfileIdentities(
+    config,
+    dependencies,
+    walletAddress,
+    links,
+  )
+  const shouldRefreshOnchain = options.force || isSnapshotStale(walletProfile?.onchainSnapshot?.lastSyncedAt, now)
+  const shouldRefreshEns = options.force || isSnapshotStale(walletProfile?.ensResolvedAt, now)
+  const onchain = shouldRefreshOnchain
+    ? await resolveOnchainProfile(dependencies, walletAddress)
+    : normalizeStoredOnchainSnapshot(walletProfile?.onchainSnapshot)
+  const ensName = shouldRefreshEns
+    ? await resolveEnsProfile(dependencies, walletAddress)
+    : typeof walletProfile?.ensName === 'string'
+      ? walletProfile.ensName
+      : null
+  const score = buildScoreSnapshot(
+    questCatalog,
+    {
+      identities,
+      onchain,
+    },
+    now,
+  )
+  const normalizedStoredScore = normalizeStoredScoreSnapshot(walletProfile?.scoreSnapshot)
+  const shouldRefreshScore =
+    options.force ||
+    isSnapshotStale(walletProfile?.scoreSnapshot?.lastComputedAt, now) ||
+    !areScoreSnapshotsEqual(
+      {
+        ...normalizedStoredScore,
+        lastComputedAt: null,
+      },
+      {
+        ...score,
+        lastComputedAt: null,
+      },
+    )
+
+  let nextProfile = walletProfile
+
+  if (!walletProfile || shouldRefreshOnchain || shouldRefreshEns || shouldRefreshScore) {
+    nextProfile = await dependencies.store.upsertWalletProfile(walletAddress, {
+      ensName,
+      ensResolvedAt: shouldRefreshEns ? new Date(now) : walletProfile?.ensResolvedAt ?? null,
+      onchainSnapshot: shouldRefreshOnchain
+        ? {
+            ...onchain,
+            lastSyncedAt: new Date(now),
+          }
+        : walletProfile?.onchainSnapshot ?? {
+            ...onchain,
+            lastSyncedAt: new Date(now),
+          },
+      scoreSnapshot: shouldRefreshScore
+        ? score
+        : walletProfile?.scoreSnapshot ?? score,
+    })
+  }
+
+  return {
+    identities,
+    onchain,
+    score,
+    walletProfile: nextProfile ?? {
+      ensName,
+      scoreSnapshot: score,
+      walletAddress,
+    },
+  }
+}
+
+async function refreshWalletProfileSnapshot(
+  config,
+  dependencies,
+  questCatalog,
+  walletAddress,
+  options = {},
+) {
+  try {
+    await synchronizeWalletProfileSnapshot(
+      config,
+      dependencies,
+      questCatalog,
+      walletAddress,
+      {
+        ...options,
+        force: true,
+      },
+    )
+  } catch (error) {
+    console.warn(`Profile snapshot refresh failed for ${walletAddress}`, error)
+  }
+}
+
 export function createApiDependencies({
+  ens = null,
   fetchImpl = fetch,
   now = () => Date.now(),
   onchain = null,
@@ -626,6 +879,9 @@ export function createApiDependencies({
         exchangeGitHubAuthorizationCode(parameters, fetchImpl),
       fetchUserStats: (parameters) =>
         fetchGitHubUserStats(parameters, fetchImpl, now()),
+    },
+    ens: ens ?? {
+      resolveEnsName: async () => null,
     },
     now,
     onchain,
@@ -688,7 +944,7 @@ async function handleWalletChallenge(config, dependencies, request, response) {
   json(response, 200, { message })
 }
 
-async function handleWalletVerify(config, dependencies, request, response) {
+async function handleWalletVerify(config, dependencies, questCatalog, request, response) {
   const body = await readRequestJson(response, request)
 
   if (body === null) {
@@ -785,6 +1041,12 @@ async function handleWalletVerify(config, dependencies, request, response) {
   await dependencies.store.upsertWalletProfile(address, {
     lastAuthenticatedAt: new Date(now),
   })
+  await refreshWalletProfileSnapshot(
+    config,
+    dependencies,
+    questCatalog,
+    address,
+  )
 
   json(response, 200, {
     wallet: {
@@ -799,7 +1061,7 @@ async function handleLogout(config, response) {
   noContent(response)
 }
 
-async function handleGetMe(config, dependencies, request, response) {
+async function handleGetMe(config, dependencies, questCatalog, request, response) {
   const session = getAuthenticatedSession(request, config, dependencies)
 
   if (!session) {
@@ -813,34 +1075,64 @@ async function handleGetMe(config, dependencies, request, response) {
     lastSeenAt: new Date(now),
   })
 
-  const links = await dependencies.store.listIdentityLinks(session.walletAddress)
-  const linkMap = new Map(links.map((link) => [link.provider, link]))
-  const [discord, github, telegram, twitter, onchain] = await Promise.all([
-    resolveDiscordIdentity(config, dependencies, linkMap.get('discord') ?? null),
-    resolveGitHubIdentity(config, dependencies, linkMap.get('github') ?? null),
-    resolveTelegramIdentity(config, dependencies, linkMap.get('telegram') ?? null),
-    Promise.resolve(resolveTwitterIdentity(linkMap.get('twitter') ?? null)),
-    resolveOnchainProfile(dependencies, session.walletAddress),
-  ])
+  const snapshot = await synchronizeWalletProfileSnapshot(
+    config,
+    dependencies,
+    questCatalog,
+    session.walletAddress,
+  )
 
   json(
     response,
     200,
     buildProfileResponse(
       session.walletAddress,
-      {
-        discord,
-        github,
-        telegram,
-        twitter,
-      },
-      onchain,
+      snapshot.walletProfile,
+      snapshot.identities,
+      snapshot.onchain,
+      snapshot.score,
     ),
   )
 }
 
 function handleGetQuests(questCatalog, response) {
   json(response, 200, questCatalog)
+}
+
+async function handleGetLeaderboard(config, dependencies, questCatalog, requestUrl, response) {
+  const limit = parseLeaderboardLimit(requestUrl)
+  const now = dependencies.now()
+  const profiles = await dependencies.store.listLeaderboardWalletProfiles(limit)
+
+  await Promise.all(
+    profiles.map((profile) => {
+      const isStale =
+        isSnapshotStale(profile.ensResolvedAt, now) ||
+        isSnapshotStale(profile?.onchainSnapshot?.lastSyncedAt, now) ||
+        isSnapshotStale(profile?.scoreSnapshot?.lastComputedAt, now)
+
+      if (!isStale) {
+        return Promise.resolve()
+      }
+
+      return synchronizeWalletProfileSnapshot(
+        config,
+        dependencies,
+        questCatalog,
+        profile.walletAddress,
+        {
+          links: null,
+          walletProfile: profile,
+        },
+      )
+    }),
+  )
+
+  const nextProfiles = await dependencies.store.listLeaderboardWalletProfiles(limit)
+
+  json(response, 200, {
+    rows: nextProfiles.map((profile, index) => buildLeaderboardRow(profile, index + 1)),
+  })
 }
 
 async function handleTwitterCode(config, dependencies, request, response) {
@@ -867,7 +1159,7 @@ async function handleTwitterCode(config, dependencies, request, response) {
   })
 }
 
-async function handleTwitterVerify(config, dependencies, request, response) {
+async function handleTwitterVerify(config, dependencies, questCatalog, request, response) {
   const session = getAuthenticatedSession(request, config, dependencies)
 
   if (!session) {
@@ -937,10 +1229,16 @@ async function handleTwitterVerify(config, dependencies, request, response) {
   }
 
   await clearPendingTwitterCode(dependencies, session.walletAddress)
+  await refreshWalletProfileSnapshot(
+    config,
+    dependencies,
+    questCatalog,
+    session.walletAddress,
+  )
   noContent(response)
 }
 
-async function handleDeleteConnection(config, dependencies, requestUrl, request, response) {
+async function handleDeleteConnection(config, dependencies, questCatalog, requestUrl, request, response) {
   const session = getAuthenticatedSession(request, config, dependencies)
 
   if (!session) {
@@ -961,6 +1259,12 @@ async function handleDeleteConnection(config, dependencies, requestUrl, request,
   }
 
   await dependencies.store.deleteIdentityLink(session.walletAddress, provider)
+  await refreshWalletProfileSnapshot(
+    config,
+    dependencies,
+    questCatalog,
+    session.walletAddress,
+  )
   noContent(response)
 }
 
@@ -983,7 +1287,7 @@ async function handleDiscordStart(config, dependencies, request, response) {
   redirect(response, buildDiscordAuthorizationUrl(config.discord, state))
 }
 
-async function handleDiscordCallback(config, dependencies, requestUrl, request, response) {
+async function handleDiscordCallback(config, dependencies, questCatalog, requestUrl, request, response) {
   const stateToken = requestUrl.searchParams.get('state')
   const code = requestUrl.searchParams.get('code')
   const authError = requestUrl.searchParams.get('error_description')
@@ -1053,6 +1357,12 @@ async function handleDiscordCallback(config, dependencies, requestUrl, request, 
       tokenResponse,
       stats,
     )
+    await refreshWalletProfileSnapshot(
+      config,
+      dependencies,
+      questCatalog,
+      session.walletAddress,
+    )
 
     redirect(response, createLinkSuccessRedirect(config, 'discord'))
   } catch (error) {
@@ -1082,7 +1392,7 @@ async function handleGitHubStart(config, dependencies, request, response) {
   redirect(response, buildGitHubAuthorizationUrl(config.github, state))
 }
 
-async function handleGitHubCallback(config, dependencies, requestUrl, request, response) {
+async function handleGitHubCallback(config, dependencies, questCatalog, requestUrl, request, response) {
   const stateToken = requestUrl.searchParams.get('state')
   const code = requestUrl.searchParams.get('code')
   const authError =
@@ -1151,6 +1461,12 @@ async function handleGitHubCallback(config, dependencies, requestUrl, request, r
       tokenResponse,
       stats,
     )
+    await refreshWalletProfileSnapshot(
+      config,
+      dependencies,
+      questCatalog,
+      session.walletAddress,
+    )
 
     redirect(response, createLinkSuccessRedirect(config, 'github'))
   } catch (error) {
@@ -1199,7 +1515,7 @@ async function handleTelegramStart(config, dependencies, request, response) {
   )
 }
 
-async function handleTelegramCallback(config, dependencies, requestUrl, request, response) {
+async function handleTelegramCallback(config, dependencies, questCatalog, requestUrl, request, response) {
   const code = requestUrl.searchParams.get('code')
   const stateToken = requestUrl.searchParams.get('state')
 
@@ -1260,6 +1576,12 @@ async function handleTelegramCallback(config, dependencies, requestUrl, request,
       session.walletAddress,
       telegramUser,
     )
+    await refreshWalletProfileSnapshot(
+      config,
+      dependencies,
+      questCatalog,
+      session.walletAddress,
+    )
 
     redirect(response, createLinkSuccessRedirect(config, 'telegram'))
   } catch (error) {
@@ -1302,7 +1624,7 @@ export function createApiServer(config, dependencies, { questCatalog = loadQuest
       }
 
       if (request.method === 'POST' && requestUrl.pathname === '/api/auth/wallet/verify') {
-        await handleWalletVerify(config, dependencies, request, response)
+        await handleWalletVerify(config, dependencies, questCatalog, request, response)
         return
       }
 
@@ -1312,7 +1634,12 @@ export function createApiServer(config, dependencies, { questCatalog = loadQuest
       }
 
       if (request.method === 'GET' && requestUrl.pathname === '/api/me') {
-        await handleGetMe(config, dependencies, request, response)
+        await handleGetMe(config, dependencies, questCatalog, request, response)
+        return
+      }
+
+      if (request.method === 'GET' && requestUrl.pathname === '/api/leaderboard') {
+        await handleGetLeaderboard(config, dependencies, questCatalog, requestUrl, response)
         return
       }
 
@@ -1330,7 +1657,14 @@ export function createApiServer(config, dependencies, { questCatalog = loadQuest
         request.method === 'GET' &&
         requestUrl.pathname === '/api/connections/discord/callback'
       ) {
-        await handleDiscordCallback(config, dependencies, requestUrl, request, response)
+        await handleDiscordCallback(
+          config,
+          dependencies,
+          questCatalog,
+          requestUrl,
+          request,
+          response,
+        )
         return
       }
 
@@ -1343,7 +1677,14 @@ export function createApiServer(config, dependencies, { questCatalog = loadQuest
         request.method === 'GET' &&
         requestUrl.pathname === '/api/connections/github/callback'
       ) {
-        await handleGitHubCallback(config, dependencies, requestUrl, request, response)
+        await handleGitHubCallback(
+          config,
+          dependencies,
+          questCatalog,
+          requestUrl,
+          request,
+          response,
+        )
         return
       }
 
@@ -1356,7 +1697,14 @@ export function createApiServer(config, dependencies, { questCatalog = loadQuest
         request.method === 'GET' &&
         requestUrl.pathname === '/api/connections/telegram/callback'
       ) {
-        await handleTelegramCallback(config, dependencies, requestUrl, request, response)
+        await handleTelegramCallback(
+          config,
+          dependencies,
+          questCatalog,
+          requestUrl,
+          request,
+          response,
+        )
         return
       }
 
@@ -1366,12 +1714,19 @@ export function createApiServer(config, dependencies, { questCatalog = loadQuest
       }
 
       if (request.method === 'POST' && requestUrl.pathname === '/api/connections/twitter/verify') {
-        await handleTwitterVerify(config, dependencies, request, response)
+        await handleTwitterVerify(config, dependencies, questCatalog, request, response)
         return
       }
 
       if (request.method === 'DELETE' && requestUrl.pathname.startsWith('/api/connections/')) {
-        await handleDeleteConnection(config, dependencies, requestUrl, request, response)
+        await handleDeleteConnection(
+          config,
+          dependencies,
+          questCatalog,
+          requestUrl,
+          request,
+          response,
+        )
         return
       }
 
@@ -1379,6 +1734,11 @@ export function createApiServer(config, dependencies, { questCatalog = loadQuest
     }
 
     void handleRequest().catch((error) => {
+      if (error instanceof RequestError) {
+        json(response, error.status, { message: getErrorMessage(error) })
+        return
+      }
+
       json(response, 500, { message: getErrorMessage(error) })
     })
   })
@@ -1402,6 +1762,7 @@ if (isDirectRun) {
   const server = createApiServer(
     config,
     createApiDependencies({
+      ens: createEnsDependencies(config),
       onchain: createOnchainStatsDependencies(config),
       store,
     }),

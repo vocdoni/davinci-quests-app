@@ -1,8 +1,10 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type { AppConfig } from './config'
+import type { LeaderboardRow } from './hooks/useLeaderboard'
+import { useLeaderboard } from './hooks/useLeaderboard'
 import { useQuests } from './hooks/useQuests'
 import type { AppProfile } from './hooks/useAppSession'
 import { useAppSession } from './hooks/useAppSession'
@@ -21,12 +23,18 @@ vi.mock('./hooks/useQuests', () => ({
   useQuests: vi.fn(),
 }))
 
+vi.mock('./hooks/useLeaderboard', () => ({
+  useLeaderboard: vi.fn(),
+}))
+
 const mockedUseWalletConnection = vi.mocked(useWalletConnection)
 const mockedUseAppSession = vi.mocked(useAppSession)
+const mockedUseLeaderboard = vi.mocked(useLeaderboard)
 const mockedUseQuests = vi.mocked(useQuests)
 
 type WalletConnectionState = ReturnType<typeof useWalletConnection>
 type SessionState = ReturnType<typeof useAppSession>
+type LeaderboardState = ReturnType<typeof useLeaderboard>
 type QuestsState = ReturnType<typeof useQuests>
 
 const baseConfig: AppConfig = {
@@ -79,6 +87,7 @@ function createProfile(
   overrides: Partial<Omit<AppProfile, 'identities' | 'onchain' | 'wallet'>> & {
     identities?: Partial<AppProfile['identities']>
     onchain?: Partial<AppProfile['onchain']>
+    score?: Partial<AppProfile['score']>
     wallet?: Partial<AppProfile['wallet']>
   } = {},
 ): AppProfile {
@@ -145,12 +154,23 @@ function createProfile(
       numberOfProcesses: 0,
       totalVotes: '0',
     },
+    score: {
+      builderCompletedCount: 0,
+      builderCompletedQuestIds: [],
+      buildersPoints: 0,
+      lastComputedAt: '2026-03-30T00:00:00.000Z',
+      supporterCompletedCount: 0,
+      supporterCompletedQuestIds: [],
+      supportersPoints: 0,
+      totalPoints: 0,
+    },
     wallet: {
       address: '0x123400000000000000000000000000000000abcd',
+      ensName: null,
     },
   }
 
-  return {
+  const mergedProfile = {
     ...baseProfile,
     ...overrides,
     identities: {
@@ -164,6 +184,32 @@ function createProfile(
     wallet: {
       ...baseProfile.wallet,
       ...overrides.wallet,
+    },
+  }
+
+  const inferredSupporterCompletedQuestIds =
+    mergedProfile.identities.discord.stats.isInTargetServer ? [1] : []
+  const inferredBuilderCompletedQuestIds =
+    mergedProfile.identities.github.stats.targetRepositories
+      .map((repository, index) => (repository.isStarred ? index + 1 : null))
+      .filter((value): value is number => value !== null)
+  const inferredBuildersPoints =
+    (inferredBuilderCompletedQuestIds.includes(1) ? 320 : 0) +
+    (inferredBuilderCompletedQuestIds.includes(2) ? 420 : 0)
+  const inferredSupportersPoints = inferredSupporterCompletedQuestIds.includes(1) ? 100 : 0
+
+  return {
+    ...mergedProfile,
+    score: {
+      ...baseProfile.score,
+      builderCompletedCount: inferredBuilderCompletedQuestIds.length,
+      builderCompletedQuestIds: inferredBuilderCompletedQuestIds,
+      buildersPoints: inferredBuildersPoints,
+      supporterCompletedCount: inferredSupporterCompletedQuestIds.length,
+      supporterCompletedQuestIds: inferredSupporterCompletedQuestIds,
+      supportersPoints: inferredSupportersPoints,
+      totalPoints: inferredBuildersPoints + inferredSupportersPoints,
+      ...overrides.score,
     },
   }
 }
@@ -241,10 +287,31 @@ function createQuestsState(overrides: Record<string, unknown> = {}): QuestsState
   } as unknown as QuestsState
 }
 
+function createLeaderboardState(
+  overrides: Record<string, unknown> = {},
+): LeaderboardState {
+  return {
+    data: {
+      rows: [],
+    },
+    error: null,
+    isError: false,
+    isFetched: true,
+    isFetching: false,
+    isLoading: false,
+    isPending: false,
+    isSuccess: true,
+    refetch: vi.fn(),
+    ...overrides,
+  } as unknown as LeaderboardState
+}
+
 beforeEach(() => {
   mockedUseWalletConnection.mockReset()
   mockedUseAppSession.mockReset()
+  mockedUseLeaderboard.mockReset()
   mockedUseQuests.mockReset()
+  mockedUseLeaderboard.mockReturnValue(createLeaderboardState())
   mockedUseQuests.mockReturnValue(createQuestsState())
   window.history.replaceState(null, '', '/')
   vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -299,6 +366,29 @@ describe('App', () => {
         '0xsigned',
       )
     })
+  })
+
+  it('toggles the mobile navigation menu button state', async () => {
+    mockedUseWalletConnection.mockReturnValue(createWalletConnection())
+    mockedUseAppSession.mockReturnValue(createSession())
+
+    const { container } = render(<App config={baseConfig} />)
+    const mobileMenuToggle = container.querySelector('.navbar-menu-toggle')
+
+    expect(mobileMenuToggle).not.toBeNull()
+
+    expect(mobileMenuToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(mobileMenuToggle).toHaveAttribute('aria-label', 'Open navigation menu')
+
+    fireEvent.click(mobileMenuToggle!)
+
+    expect(mobileMenuToggle).toHaveAttribute('aria-expanded', 'true')
+    expect(mobileMenuToggle).toHaveAttribute('aria-label', 'Close navigation menu')
+
+    fireEvent.click(mobileMenuToggle!)
+
+    expect(mobileMenuToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(mobileMenuToggle).toHaveAttribute('aria-label', 'Open navigation menu')
   })
 
   it('keeps the server session data available when the wallet is disconnected on reload', () => {
@@ -468,6 +558,39 @@ describe('App', () => {
     expect(
       screen.getByText('Connect your GitHub account from your profile to unlock progress tracking.'),
     ).toBeInTheDocument()
+  })
+
+  it('renders leaderboard rows from the backend snapshot', async () => {
+    mockedUseWalletConnection.mockReturnValue(createWalletConnection())
+    mockedUseAppSession.mockReturnValue(createSession())
+    mockedUseLeaderboard.mockReturnValue(
+      createLeaderboardState({
+        data: {
+          rows: [
+            {
+              buildersPoints: 320,
+              displayName: 'alice.eth',
+              ensName: 'alice.eth',
+              lastComputedAt: '2026-03-30T09:00:00.000Z',
+              rank: 1,
+              supportersPoints: 100,
+              totalPoints: 420,
+              walletAddress: '0x123400000000000000000000000000000000abcd',
+            } satisfies LeaderboardRow,
+          ],
+        },
+      }),
+    )
+    window.history.replaceState(null, '', '/leaderboard')
+
+    render(<App config={baseConfig} />)
+
+    expect(
+      screen.getByRole('heading', { name: 'See who is leading the quests.' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('alice.eth')).toBeInTheDocument()
+    expect(screen.getByText('#1')).toBeInTheDocument()
+    expect(screen.getByText('420 pts')).toBeInTheDocument()
   })
 
   it('shows a cross-role quest summary bar with supporter, builder, and total points', () => {

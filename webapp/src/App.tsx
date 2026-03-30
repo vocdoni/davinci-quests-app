@@ -3,19 +3,29 @@ import {
   useEffectEvent,
   useRef,
   useState,
+  type ComponentType,
   type MouseEvent,
 } from 'react'
+import {
+  Book,
+  ChatBubbleQuestion,
+  Leaderboard,
+  Puzzle,
+} from 'iconoir-react'
 import { getAddress, type Address } from 'viem'
 import davinciLogo from './assets/davinci-logo.png'
 import type { AppConfig } from './config'
+import { useLeaderboard } from './hooks/useLeaderboard'
 import { useAppSession } from './hooks/useAppSession'
 import { useQuests } from './hooks/useQuests'
 import { useWalletConnection } from './hooks/useWalletConnection'
-import {
-  buildQuestAchievementContext,
-  evaluateQuestAchievement,
-  type QuestRole,
-} from './lib/quests'
+import { FaqPage } from './routes/FaqPage'
+import { LeaderboardPage } from './routes/LeaderboardPage'
+import { ProfilePage } from './routes/ProfilePage'
+import { QuestsPage } from './routes/QuestsPage'
+import { RulesPage } from './routes/RulesPage'
+import type { ConnectionRow, ConnectionVariant, TwitterProofState } from './routes/types'
+import type { QuestRole } from './lib/quests'
 import './App.css'
 
 type AppProps = {
@@ -24,13 +34,7 @@ type AppProps = {
 
 type AppPage = 'faq' | 'leaderboard' | 'profile' | 'quests' | 'rules'
 
-type OAuthProvider = 'discord' | 'github' | 'telegram'
-
-type TwitterProofState = {
-  code: string
-  expiresAt: string
-  tweetUrl: string
-}
+type OAuthProvider = Exclude<ConnectionVariant, 'twitter'>
 
 type StatsPayload = {
   discord: {
@@ -90,31 +94,31 @@ const PROVIDER_LABELS = {
 } as const
 
 const NAV_ITEMS: Array<{
+  icon: ComponentType<{ 'aria-hidden'?: boolean; className?: string }>
   label: string
   page: Exclude<AppPage, 'profile'>
 }> = [
   {
+    icon: Puzzle,
     label: 'Quests',
     page: 'quests',
   },
   {
+    icon: Leaderboard,
     label: 'Leaderboard',
     page: 'leaderboard',
   },
   {
+    icon: Book,
     label: 'Rules',
     page: 'rules',
   },
   {
+    icon: ChatBubbleQuestion,
     label: 'FAQ',
     page: 'faq',
   },
 ]
-
-const QUEST_ROLE_LABELS: Record<QuestRole, string> = {
-  builders: 'Builders',
-  supporters: 'Supporters',
-}
 
 function areSameAddresses(left?: string | null, right?: string | null) {
   if (!left || !right) {
@@ -177,16 +181,6 @@ function trimAddress(address?: string | null) {
 
 function getProviderLabel(provider: keyof typeof PROVIDER_LABELS) {
   return PROVIDER_LABELS[provider]
-}
-
-function getQuestRoleDescription(role: QuestRole) {
-  return role === 'builders'
-    ? 'Builder quests are for contributors who unlocked the role by connecting GitHub.'
-    : 'Supporter quests are open to everyone and help you get started with the community.'
-}
-
-function getQuestCountLabel(count: number) {
-  return `${count} quest${count === 1 ? '' : 's'} available`
 }
 
 function getStatsPayload({
@@ -267,6 +261,9 @@ function App({ config }: AppProps) {
   const quests = useQuests({
     apiBaseUrl: config.apiBaseUrl,
   })
+  const leaderboard = useLeaderboard({
+    apiBaseUrl: config.apiBaseUrl,
+  })
   const { clearLinkFeedback, linkFeedback } = session
   const attemptedAutoSwitchRef = useRef<string | null>(null)
   const lastLoggedStatsRef = useRef<string | null>(null)
@@ -275,6 +272,7 @@ function App({ config }: AppProps) {
   const [currentPage, setCurrentPage] = useState<AppPage>(() =>
     typeof window === 'undefined' ? 'quests' : getPageFromPathname(window.location.pathname),
   )
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
   const [selectedQuestRole, setSelectedQuestRole] = useState<QuestRole>('supporters')
   const [isNavbarButtonHovered, setIsNavbarButtonHovered] = useState(false)
   const [isSigningIn, setIsSigningIn] = useState(false)
@@ -447,6 +445,10 @@ function App({ config }: AppProps) {
   }, [linkFeedback])
 
   useEffect(() => {
+    setIsMobileNavOpen(false)
+  }, [currentPage])
+
+  useEffect(() => {
     if (!linkFeedback || typeof window === 'undefined') {
       return
     }
@@ -465,6 +467,8 @@ function App({ config }: AppProps) {
       return
     }
 
+    setIsMobileNavOpen(false)
+
     const nextPath = getPathForPage(page)
 
     if (window.location.pathname !== nextPath) {
@@ -481,6 +485,8 @@ function App({ config }: AppProps) {
     }
 
   const handleNavbarLogin = async () => {
+    setIsMobileNavOpen(false)
+
     if (session.isAuthenticated) {
       navigateToPage('profile')
       return
@@ -624,7 +630,6 @@ function App({ config }: AppProps) {
       (!wallet.isConnected && wallet.connectors.length === 0))
   const profileRequiresSignIn = !session.isAuthenticated
   const signedAddress = session.sessionWalletAddress ?? wallet.address ?? null
-  const questAchievementContext = buildQuestAchievementContext(session.profile)
   const activeQuestList = quests.data?.[selectedQuestRole] ?? []
   const allQuestLists: Record<QuestRole, typeof activeQuestList> = {
     builders: quests.data?.builders ?? [],
@@ -634,51 +639,43 @@ function App({ config }: AppProps) {
     builders: quests.data?.builders.length ?? 0,
     supporters: quests.data?.supporters.length ?? 0,
   }
+  const completedQuestIdsByRole: Record<QuestRole, Set<number>> = {
+    builders: new Set(session.profile?.score.builderCompletedQuestIds ?? []),
+    supporters: new Set(session.profile?.score.supporterCompletedQuestIds ?? []),
+  }
   const resolvedQuests = activeQuestList.map((quest) => ({
     ...quest,
-    isCompleted: evaluateQuestAchievement(quest.achievement, questAchievementContext),
+    isCompleted: completedQuestIdsByRole[selectedQuestRole].has(quest.id),
   }))
-  const questProgressByRole = (['supporters', 'builders'] as QuestRole[]).reduce(
-    (progress, role) => {
-      const questsForRole = allQuestLists[role].map((quest) => ({
-        ...quest,
-        isCompleted: evaluateQuestAchievement(quest.achievement, questAchievementContext),
-      }))
-
-      progress[role] = {
-        completedCount: questsForRole.filter((quest) => quest.isCompleted).length,
-        earnedPoints: questsForRole.reduce(
-          (total, quest) => total + (quest.isCompleted ? quest.points : 0),
-          0,
-        ),
-        totalCount: questsForRole.length,
-      }
-
-      return progress
+  const questProgressByRole: Record<
+    QuestRole,
+    {
+      completedCount: number
+      earnedPoints: number
+      totalCount: number
+    }
+  > = {
+    builders: {
+      completedCount: session.profile?.score.builderCompletedCount ?? 0,
+      earnedPoints: session.profile?.score.buildersPoints ?? 0,
+      totalCount: allQuestLists.builders.length,
     },
-    {} as Record<
-      QuestRole,
-      {
-        completedCount: number
-        earnedPoints: number
-        totalCount: number
-      }
-    >,
-  )
-  const totalEarnedQuestPoints =
-    questProgressByRole.supporters.earnedPoints + questProgressByRole.builders.earnedPoints
+    supporters: {
+      completedCount: session.profile?.score.supporterCompletedCount ?? 0,
+      earnedPoints: session.profile?.score.supportersPoints ?? 0,
+      totalCount: allQuestLists.supporters.length,
+    },
+  }
+  const totalEarnedQuestPoints = session.profile?.score.totalPoints ?? 0
   const isGithubConnected = Boolean(session.profile?.identities.github.connected)
   const questLoadingMessage = quests.isPending ? 'Loading quests...' : null
   const questErrorMessage =
     quests.error instanceof Error ? quests.error.message : 'Quests could not be loaded right now.'
-  const connectionRows: Array<{
-    isConnected: boolean
-    name: string
-    onClick: () => void
-    statusLabel: string
-    username: string | null
-    variant: 'discord' | 'github' | 'telegram' | 'twitter'
-  }> = [
+  const leaderboardErrorMessage =
+    leaderboard.error instanceof Error
+      ? leaderboard.error.message
+      : 'Leaderboard could not be loaded right now.'
+  const connectionRows: ConnectionRow[] = [
     {
       isConnected: Boolean(session.profile?.identities.discord.connected),
       name: 'Discord',
@@ -757,9 +754,74 @@ function App({ config }: AppProps) {
     },
   ]
 
+  let pageContent = null
+
+  if (currentPage === 'quests') {
+    pageContent = (
+      <QuestsPage
+        isBuilderRoleUnlocked={isBuilderRoleUnlocked}
+        isGithubConnected={isGithubConnected}
+        isSelectedQuestRoleLocked={isSelectedQuestRoleLocked}
+        questCounts={questCounts}
+        questErrorMessage={questErrorMessage}
+        questLoadingMessage={questLoadingMessage}
+        questProgressByRole={questProgressByRole}
+        questsAreError={quests.isError}
+        resolvedQuests={resolvedQuests}
+        selectedQuestRole={selectedQuestRole}
+        totalEarnedQuestPoints={totalEarnedQuestPoints}
+        onNavigateToProfile={() => {
+          navigateToPage('profile')
+        }}
+        onSelectQuestRole={setSelectedQuestRole}
+      />
+    )
+  } else if (currentPage === 'leaderboard') {
+    pageContent = (
+      <LeaderboardPage
+        errorMessage={leaderboard.isError ? leaderboardErrorMessage : null}
+        isLoading={leaderboard.isPending}
+        rows={leaderboard.data?.rows ?? []}
+      />
+    )
+  } else if (currentPage === 'rules') {
+    pageContent = <RulesPage />
+  } else if (currentPage === 'faq') {
+    pageContent = <FaqPage />
+  } else if (currentPage === 'profile') {
+    pageContent = (
+      <ProfilePage
+        connectionRows={connectionRows}
+        isSessionActionDisabled={wallet.isConnecting || wallet.isSwitching || isSigningIn}
+        isSignedIn={session.isAuthenticated}
+        profileRequiresSignIn={profileRequiresSignIn}
+        providerAction={providerAction}
+        showSessionPanel={wallet.isConnected || session.isAuthenticated}
+        signedAddress={signedAddress}
+        twitterProof={twitterProof}
+        onDisconnect={() => {
+          void handleWalletDisconnect()
+        }}
+        onTwitterProofChange={(tweetUrl) => {
+          if (!twitterProof) {
+            return
+          }
+
+          setTwitterProof({
+            ...twitterProof,
+            tweetUrl,
+          })
+        }}
+        onTwitterVerify={() => {
+          void handleTwitterVerify()
+        }}
+      />
+    )
+  }
+
   return (
     <main className="app-shell route-page">
-      <header className="navbar-shell">
+      <header className={`navbar-shell ${isMobileNavOpen ? 'is-mobile-open' : ''}`}>
         <a
           className="brand-link"
           href="/"
@@ -773,64 +835,93 @@ function App({ config }: AppProps) {
           <span className="brand-copy">Quests</span>
         </a>
 
-        <nav
-          aria-label="Primary navigation"
-          className="nav-links"
-        >
-          {NAV_ITEMS.map((item) => (
-            <a
-              aria-current={currentPage === item.page ? 'page' : undefined}
-              className={`nav-link ${currentPage === item.page ? 'is-active' : ''}`}
-              href={getPathForPage(item.page)}
-              key={item.page}
-              onClick={handleNavigationClick(item.page)}
-            >
-              {item.label}
-            </a>
-          ))}
-        </nav>
-
         <button
-          aria-label={navbarButtonLabel}
-          className={`minimal-button nav-cta-button ${session.isAuthenticated ? 'wallet-auth-button' : ''}`}
-          disabled={isNavbarButtonDisabled}
-          onBlur={() => {
-            setIsNavbarButtonHovered(false)
-          }}
+          aria-controls="primary-navigation-panel"
+          aria-expanded={isMobileNavOpen}
+          aria-label={isMobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          className="navbar-menu-toggle"
           onClick={() => {
-            void handleNavbarLogin()
-          }}
-          onFocus={() => {
-            setIsNavbarButtonHovered(true)
-          }}
-          onMouseEnter={() => {
-            setIsNavbarButtonHovered(true)
-          }}
-          onMouseLeave={() => {
-            setIsNavbarButtonHovered(false)
+            setIsMobileNavOpen((currentValue) => !currentValue)
           }}
           type="button"
         >
-          {session.isAuthenticated ? (
-            <span
-              aria-hidden="true"
-              className="nav-cta-label-stack"
-            >
-              <span
-                className={`nav-cta-label ${isNavbarButtonHovered ? 'is-hidden' : 'is-visible'}`}
-              >
-                {authenticatedNavbarLabel}
-              </span>
-              <span
-                className={`nav-cta-label ${isNavbarButtonHovered ? 'is-visible' : 'is-hidden'}`}
-              >
-                Go to my profile
-              </span>
-            </span>
-          ) : (
-            navbarButtonLabel
-          )}
+          <span
+            aria-hidden="true"
+            className="navbar-menu-toggle-bars"
+          >
+            <span className="navbar-menu-toggle-bar" />
+            <span className="navbar-menu-toggle-bar" />
+            <span className="navbar-menu-toggle-bar" />
+          </span>
         </button>
+
+        <div
+          className="navbar-menu"
+          id="primary-navigation-panel"
+        >
+          <nav
+            aria-label="Primary navigation"
+            className="nav-links"
+          >
+            {NAV_ITEMS.map((item) => (
+              <a
+                aria-current={currentPage === item.page ? 'page' : undefined}
+                className={`nav-link ${currentPage === item.page ? 'is-active' : ''}`}
+                href={getPathForPage(item.page)}
+                key={item.page}
+                onClick={handleNavigationClick(item.page)}
+              >
+                <item.icon
+                  aria-hidden={true}
+                  className="nav-link-icon"
+                />
+                <span>{item.label}</span>
+              </a>
+            ))}
+          </nav>
+
+          <button
+            aria-label={navbarButtonLabel}
+            className={`minimal-button nav-cta-button ${session.isAuthenticated ? 'wallet-auth-button' : ''}`}
+            disabled={isNavbarButtonDisabled}
+            onBlur={() => {
+              setIsNavbarButtonHovered(false)
+            }}
+            onClick={() => {
+              void handleNavbarLogin()
+            }}
+            onFocus={() => {
+              setIsNavbarButtonHovered(true)
+            }}
+            onMouseEnter={() => {
+              setIsNavbarButtonHovered(true)
+            }}
+            onMouseLeave={() => {
+              setIsNavbarButtonHovered(false)
+            }}
+            type="button"
+          >
+            {session.isAuthenticated ? (
+              <span
+                aria-hidden="true"
+                className="nav-cta-label-stack"
+              >
+                <span
+                  className={`nav-cta-label ${isNavbarButtonHovered ? 'is-hidden' : 'is-visible'}`}
+                >
+                  {authenticatedNavbarLabel}
+                </span>
+                <span
+                  className={`nav-cta-label ${isNavbarButtonHovered ? 'is-visible' : 'is-hidden'}`}
+                >
+                  Go to my profile
+                </span>
+              </span>
+            ) : (
+              navbarButtonLabel
+            )}
+          </button>
+        </div>
       </header>
 
       <div className="page-shell">
@@ -858,363 +949,7 @@ function App({ config }: AppProps) {
             ) : null}
           </section>
         ) : null}
-
-        {currentPage === 'quests' ? (
-          <section className="profile-stack">
-            <div className="content-panel page-panel">
-              <p className="section-eyebrow">Quests</p>
-              <h1 className="page-title">Complete quests and earn points.</h1>
-              <p className="body-copy">
-                Choose the role that fits you best. Supporters are open to everyone,
-                while Builder quests unlock after you connect GitHub from your
-                profile.
-              </p>
-
-              <div
-                aria-label="Quest roles"
-                className="quest-role-picker"
-                role="tablist"
-              >
-                {(['supporters', 'builders'] as QuestRole[]).map((role) => {
-                  const isLocked = role === 'builders' && !isBuilderRoleUnlocked
-                  const isSelected = selectedQuestRole === role
-                  const questCountLabel = quests.isPending
-                    ? 'Loading quests...'
-                    : getQuestCountLabel(questCounts[role])
-
-                  return (
-                    <article
-                      aria-selected={isSelected}
-                      className={`quest-role-card ${isSelected ? 'is-active' : ''} ${isLocked ? 'is-locked' : ''}`}
-                      key={role}
-                      onClick={() => {
-                        setSelectedQuestRole(role)
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault()
-                          setSelectedQuestRole(role)
-                        }
-                      }}
-                      role="tab"
-                      tabIndex={0}
-                    >
-                      <div className="quest-role-card-copy">
-                        <div className="quest-role-card-header">
-                          <h2 className="quest-role-card-title">
-                            {QUEST_ROLE_LABELS[role]}
-                          </h2>
-                          {isSelected ? (
-                            <span className="quest-role-selected-badge">Selected</span>
-                          ) : null}
-                        </div>
-
-                        <p className="quest-role-card-description">
-                          {getQuestRoleDescription(role)}
-                        </p>
-
-                        {role === 'builders' && !isBuilderRoleUnlocked ? (
-                          <div className="quest-role-lockout">
-                            <span>Connect your GitHub account to unlock it.</span>
-                            <button
-                              className="quest-role-profile-link"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                navigateToPage('profile')
-                              }}
-                              type="button"
-                            >
-                              Go to profile
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className="quest-role-card-footer">
-                        <span className="quest-role-count">{questCountLabel}</span>
-                      </div>
-                    </article>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div
-              className={`quest-overview-bar ${isGithubConnected ? '' : 'is-builders-hidden'}`.trim()}
-            >
-              <div className="quest-overview-metric">
-                <span className="quest-overview-label">Supporters</span>
-                <span className="quest-overview-value">
-                  {questProgressByRole.supporters.completedCount}/
-                  {questProgressByRole.supporters.totalCount} completed
-                </span>
-                <span className="quest-overview-meta">
-                  {questProgressByRole.supporters.earnedPoints} pts earned
-                </span>
-              </div>
-
-              {isGithubConnected ? (
-                <div className="quest-overview-metric">
-                  <span className="quest-overview-label">Builders</span>
-                  <span className="quest-overview-value">
-                    {questProgressByRole.builders.completedCount}/
-                    {questProgressByRole.builders.totalCount} completed
-                  </span>
-                  <span className="quest-overview-meta">
-                    {questProgressByRole.builders.earnedPoints} pts earned
-                  </span>
-                </div>
-              ) : null}
-
-              <div className="quest-overview-metric is-total">
-                <span className="quest-overview-label">Total</span>
-                <span className="quest-overview-value">
-                  {totalEarnedQuestPoints} pts
-                </span>
-                <span className="quest-overview-meta">earned across all roles</span>
-              </div>
-            </div>
-
-            <div className="content-panel page-panel">
-              <div className="quest-summary-row">
-                <div className="quest-summary-copy">
-                  <p className="section-eyebrow">Roadmap</p>
-                  <h2 className="panel-title">
-                    {QUEST_ROLE_LABELS[selectedQuestRole]} quests
-                  </h2>
-                  <p className="body-copy">
-                    {getQuestRoleDescription(selectedQuestRole)}
-                  </p>
-                  {isSelectedQuestRoleLocked ? (
-                    <div className="quest-role-lockout quest-role-lockout-inline">
-                      <span>Connect your GitHub account from your profile to unlock progress tracking.</span>
-                      <button
-                        className="quest-role-profile-link"
-                        onClick={() => {
-                          navigateToPage('profile')
-                        }}
-                        type="button"
-                      >
-                        Go to profile
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
-              {questLoadingMessage ? (
-                <p className="body-copy quest-state-copy">{questLoadingMessage}</p>
-              ) : quests.isError ? (
-                <p className="body-copy quest-state-copy">{questErrorMessage}</p>
-              ) : resolvedQuests.length === 0 ? (
-                <p className="body-copy quest-state-copy">
-                  No quests are available for this role yet.
-                </p>
-              ) : (
-                <div className="quest-list">
-                  {resolvedQuests.map((quest) => (
-                    <article
-                      className={`quest-card ${quest.isCompleted ? 'is-complete' : ''} ${isSelectedQuestRoleLocked ? 'is-locked' : ''}`}
-                      key={`${selectedQuestRole}:${quest.id}`}
-                    >
-                      <div className="quest-card-meta">
-                        <span className="quest-order">Quest {quest.id}</span>
-                        <span className="quest-points-chip">{quest.points} pts</span>
-                      </div>
-
-                      <h3 className="quest-card-title">{quest.title}</h3>
-                      <p className="quest-card-description">{quest.description}</p>
-
-                      <div className="quest-card-footer">
-                        <span
-                          className={`quest-status-badge ${
-                            isSelectedQuestRoleLocked
-                              ? 'is-locked'
-                              : quest.isCompleted
-                                ? 'is-complete'
-                                : 'is-pending'
-                          }`}
-                        >
-                          {isSelectedQuestRoleLocked
-                            ? 'Locked'
-                            : quest.isCompleted
-                              ? 'Completed'
-                              : 'Pending'}
-                        </span>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
-        ) : null}
-
-        {currentPage === 'leaderboard' ? (
-          <section className="content-panel page-panel">
-            <p className="section-eyebrow">Leaderboard</p>
-            <h1 className="page-title">A simple placeholder for the leaderboard page.</h1>
-            <p className="body-copy">
-              Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
-              eiusmod tempor incididunt ut labore et dolore magna aliqua. Tellus
-              pellentesque eu tincidunt tortor aliquam nulla facilisi cras.
-            </p>
-          </section>
-        ) : null}
-
-        {currentPage === 'rules' ? (
-          <section className="content-panel page-panel">
-            <p className="section-eyebrow">Rules</p>
-            <h1 className="page-title">A simple placeholder for the rules page.</h1>
-            <p className="body-copy">
-              Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
-              eiusmod tempor incididunt ut labore et dolore magna aliqua. Amet
-              facilisis magna etiam tempor orci eu lobortis elementum nibh.
-            </p>
-          </section>
-        ) : null}
-
-        {currentPage === 'faq' ? (
-          <section className="content-panel page-panel">
-            <p className="section-eyebrow">FAQ</p>
-            <h1 className="page-title">A simple placeholder for the FAQ page.</h1>
-            <p className="body-copy">
-              Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do
-              eiusmod tempor incididunt ut labore et dolore magna aliqua. Amet
-              justo donec enim diam vulputate ut pharetra sit amet aliquam.
-            </p>
-          </section>
-        ) : null}
-
-        {currentPage === 'profile' ? (
-          <section className="profile-stack">
-            <div className="content-panel page-panel">
-              <p className="section-eyebrow">Profile</p>
-              <div className="page-title-row">
-                <h1 className="page-title">My profile</h1>
-                {signedAddress ? (
-                  <span className="address-chip">{signedAddress}</span>
-                ) : null}
-              </div>
-              <p className="body-copy">
-                Connect the rest of your identities here. This view now stays
-                focused on account linking only.
-              </p>
-            </div>
-
-            <div className="content-panel page-panel">
-              <h2 className="panel-title">Connections</h2>
-              <p className="body-copy">
-                {profileRequiresSignIn
-                  ? 'Use the login button in the navbar to connect your wallet and sign in before linking the rest of your accounts.'
-                  : 'All linked accounts are managed from this page.'}
-              </p>
-
-              <div className="connection-list">
-                {connectionRows.map((connection) => (
-                  <article
-                    className="connection-row"
-                    key={connection.name}
-                  >
-                    <div className="connection-meta">
-                      <p className="connection-name">{connection.name}</p>
-                      <p className="connection-username">
-                        {connection.isConnected
-                          ? connection.username ?? 'Connected account'
-                          : 'Not connected'}
-                      </p>
-                    </div>
-
-                    <div className="connection-actions">
-                      {connection.isConnected ? (
-                        <button
-                          aria-label={`Remove ${connection.name}`}
-                          className="inline-danger-button"
-                          disabled={!session.isAuthenticated || providerAction !== null}
-                          onClick={connection.onClick}
-                          type="button"
-                        >
-                          {providerAction === connection.variant ? 'Removing...' : 'Remove'}
-                        </button>
-                      ) : (
-                        <button
-                          className={`minimal-button ${connection.variant}-button`}
-                          disabled={!session.isAuthenticated || providerAction !== null}
-                          onClick={connection.onClick}
-                          type="button"
-                        >
-                          {connection.statusLabel}
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                ))}
-              </div>
-
-              {twitterProof ? (
-                <div className="twitter-proof-shell">
-                  <p className="twitter-proof-label">
-                    Post this code on X, then paste the post URL below.
-                  </p>
-                  <p className="twitter-proof-code">{twitterProof.code}</p>
-                  <p className="body-copy twitter-proof-meta">
-                    Code expires at {twitterProof.expiresAt}
-                  </p>
-                  <label
-                    className="twitter-proof-label"
-                    htmlFor="twitter-proof-url"
-                  >
-                    Post URL
-                  </label>
-                  <input
-                    className="twitter-proof-input"
-                    id="twitter-proof-url"
-                    onChange={(event) => {
-                      setTwitterProof({
-                        ...twitterProof,
-                        tweetUrl: event.target.value,
-                      })
-                    }}
-                    placeholder="https://x.com/your-handle/status/1234567890"
-                    type="url"
-                    value={twitterProof.tweetUrl}
-                  />
-                  <button
-                    className="minimal-button twitter-verify-button"
-                    disabled={!twitterProof.tweetUrl.trim() || providerAction !== null}
-                    onClick={() => {
-                      void handleTwitterVerify()
-                    }}
-                    type="button"
-                  >
-                    Verify post
-                  </button>
-                </div>
-              ) : null}
-            </div>
-
-            {(wallet.isConnected || session.isAuthenticated) ? (
-              <div className="content-panel page-panel session-panel">
-                <h2 className="panel-title">Session</h2>
-                <p className="body-copy">
-                  Disconnecting here will also close the current signed session.
-                </p>
-                <div>
-                  <button
-                    className="minimal-button session-danger-button"
-                    disabled={wallet.isConnecting || wallet.isSwitching || isSigningIn}
-                    onClick={() => {
-                      void handleWalletDisconnect()
-                    }}
-                    type="button"
-                  >
-                    Sign out
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </section>
-        ) : null}
+        {pageContent}
       </div>
     </main>
   )

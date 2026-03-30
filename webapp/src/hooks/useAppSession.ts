@@ -70,8 +70,19 @@ export type AppProfile = {
     numberOfProcesses: number
     totalVotes: string
   }
+  score: {
+    builderCompletedCount: number
+    builderCompletedQuestIds: number[]
+    buildersPoints: number
+    lastComputedAt: string | null
+    supporterCompletedCount: number
+    supporterCompletedQuestIds: number[]
+    supportersPoints: number
+    totalPoints: number
+  }
   wallet: {
     address: string
+    ensName: string | null
   }
 }
 

@@ -118,6 +118,7 @@ export function parseServerConfig(env = process.env) {
     'DISCORD_CLIENT_SECRET',
     'DISCORD_GUILD_ID',
     'DISCORD_REDIRECT_URI',
+    'ENS_RPC_URL',
     'FRONTEND_APP_URL',
     'GITHUB_CLIENT_ID',
     'GITHUB_CLIENT_SECRET',
@@ -164,6 +165,12 @@ export function parseServerConfig(env = process.env) {
       redirectUri: parseUrl(
         'DISCORD_REDIRECT_URI',
         requireString(env, 'DISCORD_REDIRECT_URI'),
+      ),
+    },
+    ens: {
+      rpcUrl: parseUrl(
+        'ENS_RPC_URL',
+        requireString(env, 'ENS_RPC_URL'),
       ),
     },
     frontendAppUrl,

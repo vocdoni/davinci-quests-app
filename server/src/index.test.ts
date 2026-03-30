@@ -6,7 +6,7 @@ import { verifyMessage } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { DiscordApiError } from './discord.mjs'
 import { GitHubApiError } from './github.mjs'
-import { createApiServer } from './index.mjs'
+import { createApiServer as createHttpApiServer } from './index.mjs'
 import { encryptSecret } from './security.mjs'
 
 const baseConfig = {
@@ -16,6 +16,9 @@ const baseConfig = {
     clientSecret: 'discord-client-secret',
     guildId: '987654321098765432',
     redirectUri: 'https://api.example.org/api/connections/discord/callback',
+  },
+  ens: {
+    rpcUrl: 'https://ens.example.org',
   },
   frontendAppUrl: 'https://app.example.org',
   frontendOrigin: 'https://app.example.org',
@@ -60,6 +63,14 @@ const baseConfig = {
   },
 }
 
+const openServers = new Set()
+
+function createApiServer(...parameters) {
+  const server = createHttpApiServer(...parameters)
+  openServers.add(server)
+  return server
+}
+
 function createMemoryStore(initialLinks = []) {
   const walletProfiles = new Map()
   const identityLinks = new Map(
@@ -95,6 +106,37 @@ function createMemoryStore(initialLinks = []) {
       return [...identityLinks.values()]
         .filter((link) => link.walletAddress === walletAddress)
         .map((link) => ({ ...link }))
+    },
+
+    async listLeaderboardWalletProfiles(limit) {
+      return [...walletProfiles.values()]
+        .filter((profile) => profile.lastAuthenticatedAt instanceof Date)
+        .sort((left, right) => {
+          const leftScore = left.scoreSnapshot?.totalPoints ?? 0
+          const rightScore = right.scoreSnapshot?.totalPoints ?? 0
+
+          if (leftScore !== rightScore) {
+            return rightScore - leftScore
+          }
+
+          const leftBuilderPoints = left.scoreSnapshot?.buildersPoints ?? 0
+          const rightBuilderPoints = right.scoreSnapshot?.buildersPoints ?? 0
+
+          if (leftBuilderPoints !== rightBuilderPoints) {
+            return rightBuilderPoints - leftBuilderPoints
+          }
+
+          const leftSupporterPoints = left.scoreSnapshot?.supportersPoints ?? 0
+          const rightSupporterPoints = right.scoreSnapshot?.supportersPoints ?? 0
+
+          if (leftSupporterPoints !== rightSupporterPoints) {
+            return rightSupporterPoints - leftSupporterPoints
+          }
+
+          return left.walletAddress.localeCompare(right.walletAddress)
+        })
+        .slice(0, limit)
+        .map((profile) => ({ ...profile }))
     },
 
     async upsertIdentityLink(walletAddress, provider, nextFields) {
@@ -256,6 +298,11 @@ async function authenticateWallet(server, account) {
 }
 
 afterEach(() => {
+  for (const server of openServers) {
+    server.close()
+  }
+
+  openServers.clear()
   vi.restoreAllMocks()
 })
 
@@ -316,6 +363,187 @@ describe('API server', () => {
         },
       ],
     })
+  })
+
+  it('serves the leaderboard for authenticated wallets only, sorted by total points', async () => {
+    const now = new Date('2026-03-30T10:00:00.000Z').getTime()
+    const store = createMemoryStore()
+
+    await store.upsertWalletProfile('0x00000000000000000000000000000000000000aa', {
+      ensName: 'alice.eth',
+      ensResolvedAt: new Date(now),
+      lastAuthenticatedAt: new Date(now),
+      onchainSnapshot: {
+        error: null,
+        lastSyncedAt: new Date(now),
+        numberOfProcesses: 0,
+        totalVotes: '0',
+      },
+      scoreSnapshot: {
+        builderCompletedCount: 1,
+        builderCompletedQuestIds: [1],
+        buildersPoints: 320,
+        lastComputedAt: new Date(now),
+        supporterCompletedCount: 1,
+        supporterCompletedQuestIds: [1],
+        supportersPoints: 100,
+        totalPoints: 420,
+      },
+    })
+    await store.upsertWalletProfile('0x00000000000000000000000000000000000000bb', {
+      ensName: null,
+      ensResolvedAt: new Date(now),
+      lastAuthenticatedAt: new Date(now),
+      onchainSnapshot: {
+        error: null,
+        lastSyncedAt: new Date(now),
+        numberOfProcesses: 0,
+        totalVotes: '0',
+      },
+      scoreSnapshot: {
+        builderCompletedCount: 2,
+        builderCompletedQuestIds: [1, 2],
+        buildersPoints: 740,
+        lastComputedAt: new Date(now),
+        supporterCompletedCount: 1,
+        supporterCompletedQuestIds: [1],
+        supportersPoints: 100,
+        totalPoints: 840,
+      },
+    })
+    await store.upsertWalletProfile('0x00000000000000000000000000000000000000cc', {
+      scoreSnapshot: {
+        totalPoints: 999,
+      },
+    })
+
+    const server = createApiServer(baseConfig, {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      now: () => now,
+      onchain: createOnchainDependencies(),
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    })
+
+    const response = await performRequest(server, {
+      method: 'GET',
+      url: '/api/leaderboard?limit=2',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toEqual({
+      rows: [
+        {
+          buildersPoints: 740,
+          displayName: '0x0000...00bb',
+          ensName: null,
+          lastComputedAt: '2026-03-30T10:00:00.000Z',
+          rank: 1,
+          supportersPoints: 100,
+          totalPoints: 840,
+          walletAddress: '0x00000000000000000000000000000000000000bb',
+        },
+        {
+          buildersPoints: 320,
+          displayName: 'alice.eth',
+          ensName: 'alice.eth',
+          lastComputedAt: '2026-03-30T10:00:00.000Z',
+          rank: 2,
+          supportersPoints: 100,
+          totalPoints: 420,
+          walletAddress: '0x00000000000000000000000000000000000000aa',
+        },
+      ],
+    })
+  })
+
+  it('refreshes stale leaderboard rows before returning them', async () => {
+    const now = new Date('2026-03-30T10:00:00.000Z').getTime()
+    const staleTime = now - 16 * 60 * 1000
+    const store = createMemoryStore([
+      {
+        discordLastKnownIsInTargetServer: false,
+        encryptedAccessToken: encryptSecret('discord-access-token', baseConfig.providerTokenEncryptionSecret),
+        encryptedRefreshToken: encryptSecret('discord-refresh-token', baseConfig.providerTokenEncryptionSecret),
+        provider: 'discord',
+        providerUserId: 'discord-user',
+        username: 'discord-user',
+        walletAddress: '0x00000000000000000000000000000000000000aa',
+      },
+    ])
+
+    await store.upsertWalletProfile('0x00000000000000000000000000000000000000aa', {
+      ensResolvedAt: new Date(staleTime),
+      lastAuthenticatedAt: new Date(now),
+      onchainSnapshot: {
+        error: null,
+        lastSyncedAt: new Date(staleTime),
+        numberOfProcesses: 0,
+        totalVotes: '0',
+      },
+      scoreSnapshot: {
+        builderCompletedCount: 0,
+        builderCompletedQuestIds: [],
+        buildersPoints: 0,
+        lastComputedAt: new Date(staleTime),
+        supporterCompletedCount: 0,
+        supporterCompletedQuestIds: [],
+        supportersPoints: 0,
+        totalPoints: 0,
+      },
+    })
+
+    const discordDependencies = {
+      exchangeAuthorizationCode: vi.fn(),
+      fetchUserStats: vi.fn(async () => ({
+        displayName: 'Quest Supporter',
+        isInTargetServer: true,
+        userId: 'discord-user',
+        username: 'questsupporter',
+      })),
+      refreshAccessToken: vi.fn(),
+    }
+    const server = createApiServer(baseConfig, {
+      discord: discordDependencies,
+      now: () => now,
+      onchain: createOnchainDependencies(),
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    })
+
+    const response = await performRequest(server, {
+      method: 'GET',
+      url: '/api/leaderboard',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toEqual({
+      rows: [
+        expect.objectContaining({
+          rank: 1,
+          supportersPoints: 100,
+          totalPoints: 100,
+          walletAddress: '0x00000000000000000000000000000000000000aa',
+        }),
+      ],
+    })
+    expect(discordDependencies.fetchUserStats).toHaveBeenCalledTimes(1)
   })
 
   it('verifies a wallet challenge and returns the default disconnected profile', async () => {
@@ -416,8 +644,19 @@ describe('API server', () => {
         numberOfProcesses: 0,
         totalVotes: '0',
       },
+      score: {
+        builderCompletedCount: 0,
+        builderCompletedQuestIds: [],
+        buildersPoints: 0,
+        lastComputedAt: '1970-01-01T00:16:40.000Z',
+        supporterCompletedCount: 0,
+        supporterCompletedQuestIds: [],
+        supportersPoints: 0,
+        totalPoints: 0,
+      },
       wallet: {
         address: account.address,
+        ensName: null,
       },
     })
   })
@@ -788,6 +1027,12 @@ describe('API server', () => {
           username: 'questmaster',
         })
         .mockResolvedValueOnce({
+          displayName: 'Quest Master',
+          isInTargetServer: true,
+          userId: '111111111111111111',
+          username: 'questmaster',
+        })
+        .mockResolvedValueOnce({
           displayName: 'Duplicate Quest',
           isInTargetServer: true,
           userId: '999999999999999999',
@@ -895,6 +1140,26 @@ describe('API server', () => {
       })),
       fetchUserStats: vi
         .fn()
+        .mockResolvedValueOnce({
+          accountCreatedAt: '2020-01-01T00:00:00.000Z',
+          displayName: 'Quest Master',
+          isFollowingTargetOrganization: true,
+          isOlderThanOneYear: true,
+          publicNonForkRepositoryCount: 9,
+          targetOrganization: 'vocdoni',
+          targetRepositories: [
+            {
+              fullName: 'vocdoni/davinciNode',
+              isStarred: true,
+            },
+            {
+              fullName: 'vocdoni/davinciSDK',
+              isStarred: false,
+            },
+          ],
+          userId: '123456',
+          username: 'questmaster',
+        })
         .mockResolvedValueOnce({
           accountCreatedAt: '2020-01-01T00:00:00.000Z',
           displayName: 'Quest Master',
@@ -1085,19 +1350,25 @@ describe('API server', () => {
     const dependencies = {
       discord: {
         exchangeAuthorizationCode: vi.fn(),
-        fetchUserStats: vi
-          .fn()
-          .mockRejectedValueOnce(new DiscordApiError('Unauthorized', 401))
-          .mockResolvedValueOnce({
-            displayName: 'Quest Master',
+      fetchUserStats: vi
+        .fn()
+        .mockRejectedValueOnce(new DiscordApiError('Unauthorized', 401))
+        .mockResolvedValueOnce({
+          displayName: 'Quest Master',
             isInTargetServer: true,
-            userId: '111111111111111111',
-            username: 'questmaster',
-          })
-          .mockResolvedValueOnce({
-            displayName: 'Quest Master Redux',
-            isInTargetServer: false,
-            userId: '111111111111111111',
+          userId: '111111111111111111',
+          username: 'questmaster',
+        })
+        .mockResolvedValueOnce({
+          displayName: 'Quest Master',
+          isInTargetServer: true,
+          userId: '111111111111111111',
+          username: 'questmaster',
+        })
+        .mockResolvedValueOnce({
+          displayName: 'Quest Master Redux',
+          isInTargetServer: false,
+          userId: '111111111111111111',
             username: 'questmasterredux',
           }),
         refreshAccessToken: vi.fn(async () => ({
@@ -1150,6 +1421,10 @@ describe('API server', () => {
       guildId: baseConfig.discord.guildId,
     })
     expect(dependencies.discord.fetchUserStats).toHaveBeenNthCalledWith(3, {
+      accessToken: 'new-access-token',
+      guildId: baseConfig.discord.guildId,
+    })
+    expect(dependencies.discord.fetchUserStats).toHaveBeenNthCalledWith(4, {
       accessToken: 'new-access-token',
       guildId: baseConfig.discord.guildId,
     })
@@ -1287,6 +1562,26 @@ describe('API server', () => {
             userId: '123456',
             username: 'questmaster',
           })
+          .mockResolvedValueOnce({
+            accountCreatedAt: '2020-01-01T00:00:00.000Z',
+            displayName: 'Quest Master',
+            isFollowingTargetOrganization: true,
+            isOlderThanOneYear: true,
+            publicNonForkRepositoryCount: 9,
+            targetOrganization: 'vocdoni',
+            targetRepositories: [
+              {
+                fullName: 'vocdoni/davinciNode',
+                isStarred: true,
+              },
+              {
+                fullName: 'vocdoni/davinciSDK',
+                isStarred: true,
+              },
+            ],
+            userId: '123456',
+            username: 'questmaster',
+          })
           .mockRejectedValueOnce(new GitHubApiError('Bad credentials', 401)),
       },
       now: () => new Date('2026-03-24T18:00:00.000Z').getTime(),
@@ -1324,6 +1619,11 @@ describe('API server', () => {
       targetRepositories: baseConfig.github.targetRepositories,
     })
     expect(dependencies.github.fetchUserStats).toHaveBeenNthCalledWith(2, {
+      accessToken: 'old-github-access',
+      targetOrganization: 'vocdoni',
+      targetRepositories: baseConfig.github.targetRepositories,
+    })
+    expect(dependencies.github.fetchUserStats).toHaveBeenNthCalledWith(3, {
       accessToken: 'old-github-access',
       targetOrganization: 'vocdoni',
       targetRepositories: baseConfig.github.targetRepositories,
@@ -1405,6 +1705,9 @@ describe('API server', () => {
           .mockResolvedValueOnce({
             isInTargetChannel: true,
           })
+          .mockResolvedValueOnce({
+            isInTargetChannel: true,
+          })
           .mockRejectedValueOnce(
             new Error('Forbidden: bot is not an administrator of the target chat.'),
           ),
@@ -1448,11 +1751,12 @@ describe('API server', () => {
     })
   })
 
-  it('recomputes onchain stats on every /api/me request and returns defaults on live errors', async () => {
+  it('uses cached onchain stats until the snapshot becomes stale, then falls back to defaults on refresh errors', async () => {
     const account = privateKeyToAccount(
       '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
     )
     const store = createMemoryStore()
+    let currentTime = new Date('2026-03-24T18:00:00.000Z').getTime()
     const onchain = createOnchainDependencies({
       fetchUserStats: vi
         .fn()
@@ -1468,7 +1772,7 @@ describe('API server', () => {
         fetchUserStats: vi.fn(),
         refreshAccessToken: vi.fn(),
       },
-      now: () => new Date('2026-03-24T18:00:00.000Z').getTime(),
+      now: () => currentTime,
       onchain,
       store,
       telegram: {
@@ -1489,6 +1793,7 @@ describe('API server', () => {
       method: 'GET',
       url: '/api/me',
     })
+    currentTime += 16 * 60 * 1000
     const secondMeResponse = await performRequest(server, {
       headers: {
         cookie: sessionCookie ?? '',
