@@ -5,12 +5,42 @@ import { ApiError, buildApiUrl, requestJson, requestVoid } from '../lib/api'
 
 export type ProviderName = 'discord' | 'github' | 'telegram' | 'twitter'
 
+export type SequencerStats = {
+  lastVerifiedAt: string | null
+  numOfProcessAsParticipant: number
+  processes: string[]
+  votesCasted: number
+}
+
+export type SequencerVerification = {
+  addressWeight: string | null
+  error: string | null
+  hasVoted: boolean | null
+  isConnected: boolean
+  isInCensus: boolean | null
+  lastVerifiedAt: string | null
+  processId: string | null
+  processes: Array<{
+    addressWeight: string | null
+    error: string | null
+    hasVoted: boolean | null
+    isInCensus: boolean | null
+    lastVerifiedAt: string | null
+    processId: string
+    status: string
+  }>
+  numOfProcessAsParticipant: number
+  status: string
+  votesCasted: number
+}
+
 type DiscordIdentity = {
   connected: boolean
   displayName: string | null
   error: string | null
   stats: {
     isInTargetServer: boolean | null
+    messagesInTargetChannel?: number | null
   }
   status: string
   userId: string | null
@@ -58,6 +88,47 @@ type TwitterIdentity = {
   username: string | null
 }
 
+type ProfileStats = {
+  discord: {
+    isInTargetServer: boolean | null
+    messagesInTargetChannel: number | null
+  }
+  github: {
+    isFollowingTargetOrganization: boolean | null
+    isOlderThanOneYear: boolean | null
+    publicNonForkRepositoryCount: number | null
+    targetOrganization: string | null
+    targetRepositories: Array<{
+      fullName: string
+      isStarred: boolean | null
+    }>
+  }
+  onchain: {
+    address: string
+    error: string | null
+    isConnected: boolean
+    numberOfProcesses: number
+    totalVotes: string
+  }
+  quests: {
+    builders: {
+      completed: number
+      points: number
+      total: number
+    }
+    supporters: {
+      completed: number
+      points: number
+      total: number
+    }
+  }
+  sequencer: SequencerStats
+  telegram: {
+    isInTargetChannel: boolean | null
+  }
+  twitter: Record<string, never>
+}
+
 export type AppProfile = {
   identities: {
     discord: DiscordIdentity
@@ -65,11 +136,14 @@ export type AppProfile = {
     telegram: TelegramIdentity
     twitter: TwitterIdentity
   }
-  onchain: {
+  stats: ProfileStats
+  onchain?: {
     error: string | null
+    isConnected: boolean
     numberOfProcesses: number
     totalVotes: string
   }
+  sequencer?: SequencerVerification
   score: {
     builderCompletedCount: number
     builderCompletedQuestIds: number[]
@@ -247,6 +321,23 @@ export function useAppSession({
       },
     )
 
+  const verifySequencerProcess = async (processId: string) => {
+    const response = await requestJson<{ sequencer: SequencerVerification }>(
+      apiBaseUrl,
+      '/api/sequencer/verify',
+      {
+        body: JSON.stringify({ processId }),
+        method: 'POST',
+      },
+    )
+
+    await queryClient.invalidateQueries({
+      queryKey: ['app-profile', apiBaseUrl],
+    })
+
+    return response
+  }
+
   const verifyTwitterTweet = async (tweetUrl: string) => {
     await requestVoid(apiBaseUrl, '/api/connections/twitter/verify', {
       body: JSON.stringify({ tweetUrl }),
@@ -274,6 +365,7 @@ export function useAppSession({
     sessionWalletAddress,
     startProviderConnection,
     unlinkProvider,
+    verifySequencerProcess,
     verifyTwitterTweet,
     verifyWallet,
   }

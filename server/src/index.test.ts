@@ -6,7 +6,11 @@ import { verifyMessage } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { DiscordApiError } from './discord.mjs'
 import { GitHubApiError } from './github.mjs'
-import { createApiServer as createHttpApiServer } from './index.mjs'
+import {
+  createApiServer as createHttpApiServer,
+  rebuildStoredScoresFromLocalState,
+} from './index.mjs'
+import { loadQuestCatalog } from './quests.mjs'
 import { encryptSecret } from './security.mjs'
 
 const baseConfig = {
@@ -14,7 +18,9 @@ const baseConfig = {
   discord: {
     clientId: '123456789012345678',
     clientSecret: 'discord-client-secret',
+    botToken: 'discord-bot-token',
     guildId: '987654321098765432',
+    targetChannelId: '555555555555555555',
     redirectUri: 'https://api.example.org/api/connections/discord/callback',
   },
   ens: {
@@ -48,6 +54,9 @@ const baseConfig = {
     contractAddress: '0x0000000000000000000000000000000000000001',
     rpcUrl: 'https://rpc.example.org',
     startBlock: 12345n,
+  },
+  sequencer: {
+    apiUrl: 'https://sequencer.example.org/',
   },
   port: 3001,
   providerTokenEncryptionSecret: 'provider-secret',
@@ -183,6 +192,18 @@ function createOnchainDependencies(overrides = {}) {
     fetchUserStats: vi.fn(async () => ({
       createdProcessesCount: 0,
       totalVotes: '0',
+    })),
+    ...overrides,
+  }
+}
+
+function createSequencerDependencies(overrides = {}) {
+  return {
+    verifyProcessStats: vi.fn(async () => ({
+      addressWeight: '1',
+      hasVoted: false,
+      isInCensus: true,
+      processId: '0x0000000000000000000000000000000000000001',
     })),
     ...overrides,
   }
@@ -333,36 +354,7 @@ describe('API server', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(JSON.parse(response.body)).toEqual({
-      builders: [
-        {
-          achievement: 'github.targetRepositories[0].isStarred == true',
-          description:
-            'Enjoying Davinci Node? Star the repository on GitHub to support the project and help more developers discover it.',
-          id: 1,
-          points: 320,
-          title: 'Star the Davinci Node repo on GitHub',
-        },
-        {
-          achievement: 'github.targetRepositories[1].isStarred == true',
-          description:
-            'Want to build with Davinci? Explore our SDK, star the repository on GitHub, and start creating something great on the protocol.',
-          id: 2,
-          points: 420,
-          title: 'Star the Davinci SDK repo on GitHub',
-        },
-      ],
-      supporters: [
-        {
-          achievement: 'discord.isInTargetServer == true',
-          description:
-            'Join the Vocdoni Discord server to connect with the community, stay up to date, and get support when you need it.',
-          id: 1,
-          points: 100,
-          title: 'Join the Vocdoni Discord server',
-        },
-      ],
-    })
+    expect(JSON.parse(response.body)).toEqual(loadQuestCatalog())
   })
 
   it('serves the leaderboard for authenticated wallets only, sorted by total points', async () => {
@@ -508,6 +500,7 @@ describe('API server', () => {
       fetchUserStats: vi.fn(async () => ({
         displayName: 'Quest Supporter',
         isInTargetServer: true,
+        messagesInTargetChannel: 1,
         userId: 'discord-user',
         username: 'questsupporter',
       })),
@@ -537,13 +530,118 @@ describe('API server', () => {
       rows: [
         expect.objectContaining({
           rank: 1,
-          supportersPoints: 100,
-          totalPoints: 100,
+          supportersPoints: 45,
+          totalPoints: 45,
           walletAddress: '0x00000000000000000000000000000000000000aa',
         }),
       ],
     })
     expect(discordDependencies.fetchUserStats).toHaveBeenCalledTimes(1)
+  })
+
+  it('rebuilds stored score snapshots from cached local stats when quest points change', async () => {
+    const now = new Date('2026-03-30T10:00:00.000Z').getTime()
+    const store = createMemoryStore([
+      {
+        createdAt: new Date(now - 1_000),
+        githubLastKnownIsFollowingTargetOrganization: true,
+        githubLastKnownIsOlderThanOneYear: true,
+        githubLastKnownPublicNonForkRepositoryCount: 8,
+        githubLastKnownTargetOrganization: 'vocdoni',
+        githubLastKnownTargetRepositories: [
+          {
+            fullName: 'vocdoni/davinciNode',
+            isStarred: true,
+          },
+        ],
+        provider: 'github',
+        providerUserId: 'github-user',
+        updatedAt: new Date(now - 1_000),
+        username: 'questmaster',
+        walletAddress: '0x00000000000000000000000000000000000000aa',
+      },
+      {
+        createdAt: new Date(now - 1_000),
+        provider: 'telegram',
+        providerUserId: 'telegram-user',
+        telegramLastKnownIsInTargetChannel: true,
+        updatedAt: new Date(now - 1_000),
+        username: 'questcaptain',
+        walletAddress: '0x00000000000000000000000000000000000000aa',
+      },
+    ])
+
+    await store.upsertWalletProfile('0x00000000000000000000000000000000000000aa', {
+      lastAuthenticatedAt: new Date(now),
+      onchainSnapshot: {
+        error: null,
+        lastSyncedAt: new Date(now),
+        numberOfProcesses: 0,
+        totalVotes: '0',
+      },
+      scoreSnapshot: {
+        builderCompletedCount: 0,
+        builderCompletedQuestIds: [],
+        buildersPoints: 0,
+        lastComputedAt: new Date(now - 60 * 60 * 1000),
+        supporterCompletedCount: 0,
+        supporterCompletedQuestIds: [],
+        supportersPoints: 0,
+        totalPoints: 0,
+      },
+    })
+
+    const questCatalog = {
+      builders: [
+        {
+          achievement: 'github.targetRepositories[0].isStarred == true',
+          description: 'Star the repo.',
+          id: 1,
+          points: 50,
+          title: 'Star repo',
+        },
+      ],
+      supporters: [
+        {
+          achievement: 'telegram.isInTargetChannel == true',
+          description: 'Join the channel.',
+          id: 2,
+          points: 30,
+          title: 'Join channel',
+        },
+        {
+          achievement: 'onchain.isConnected == true',
+          description: 'Sign in.',
+          id: 3,
+          points: 10,
+          title: 'Sign in',
+        },
+      ],
+    }
+
+    await rebuildStoredScoresFromLocalState(
+      baseConfig,
+      {
+        now: () => now,
+        store,
+      },
+      questCatalog,
+    )
+
+    const updatedProfile = await store.getWalletProfile(
+      '0x00000000000000000000000000000000000000aa',
+    )
+
+    expect(updatedProfile?.scoreSnapshot).toMatchObject({
+      builderCompletedCount: 1,
+      builderCompletedQuestIds: [1],
+      buildersPoints: 50,
+      supporterCompletedCount: 2,
+      supporterCompletedQuestIds: [2, 3],
+      supportersPoints: 40,
+      totalPoints: 90,
+    })
+    expect(updatedProfile?.scoreSnapshot?.lastComputedAt).toEqual(new Date(now))
   })
 
   it('verifies a wallet challenge and returns the default disconnected profile', async () => {
@@ -581,78 +679,57 @@ describe('API server', () => {
     expect(verifyResponse.statusCode).toBe(200)
     expect(sessionCookie).toBeTruthy()
     expect(meResponse.statusCode).toBe(200)
-    expect(JSON.parse(meResponse.body)).toEqual({
-      identities: {
+    expect(JSON.parse(meResponse.body)).toMatchObject({
+      stats: {
         discord: {
-          connected: false,
-          displayName: null,
-          error: null,
-          stats: {
-            isInTargetServer: null,
-          },
-          status: 'disconnected',
-          userId: null,
-          username: null,
+          isInTargetServer: null,
+          messagesInTargetChannel: null,
         },
         github: {
-          connected: false,
-          displayName: null,
+          isFollowingTargetOrganization: null,
+          isOlderThanOneYear: null,
+          publicNonForkRepositoryCount: null,
+          targetOrganization: 'vocdoni',
+          targetRepositories: [
+            {
+              fullName: 'vocdoni/davinciNode',
+              isStarred: null,
+            },
+            {
+              fullName: 'vocdoni/davinciSDK',
+              isStarred: null,
+            },
+          ],
+        },
+        onchain: {
+          address: account.address,
           error: null,
-          stats: {
-            isFollowingTargetOrganization: null,
-            isOlderThanOneYear: null,
-            publicNonForkRepositoryCount: null,
-            targetOrganization: 'vocdoni',
-            targetRepositories: [
-              {
-                fullName: 'vocdoni/davinciNode',
-                isStarred: null,
-              },
-              {
-                fullName: 'vocdoni/davinciSDK',
-                isStarred: null,
-              },
-            ],
+          isConnected: true,
+          numberOfProcesses: 0,
+          totalVotes: '0',
+        },
+        quests: {
+          builders: {
+            completed: 0,
+            points: 0,
+            total: 2,
           },
-          status: 'disconnected',
-          userId: null,
-          username: null,
+          supporters: {
+            completed: 1,
+            points: 25,
+            total: 11,
+          },
+        },
+        sequencer: {
+          lastVerifiedAt: null,
+          numOfProcessAsParticipant: 0,
+          processes: [],
+          votesCasted: 0,
         },
         telegram: {
-          connected: false,
-          displayName: null,
-          error: null,
-          stats: {
-            isInTargetChannel: null,
-          },
-          status: 'disconnected',
-          userId: null,
-          username: null,
+          isInTargetChannel: null,
         },
-        twitter: {
-          connected: false,
-          displayName: null,
-          error: null,
-          stats: {},
-          status: 'disconnected',
-          userId: null,
-          username: null,
-        },
-      },
-      onchain: {
-        error: null,
-        numberOfProcesses: 0,
-        totalVotes: '0',
-      },
-      score: {
-        builderCompletedCount: 0,
-        builderCompletedQuestIds: [],
-        buildersPoints: 0,
-        lastComputedAt: '1970-01-01T00:16:40.000Z',
-        supporterCompletedCount: 0,
-        supporterCompletedQuestIds: [],
-        supportersPoints: 0,
-        totalPoints: 0,
+        twitter: {},
       },
       wallet: {
         address: account.address,
@@ -750,6 +827,306 @@ describe('API server', () => {
     expect(verifyResponse.statusCode).toBe(401)
     expect(JSON.parse(verifyResponse.body)).toEqual({
       message: 'Unauthorized',
+    })
+  })
+
+  it('verifies a sequencer process and stores the snapshot on the wallet profile', async () => {
+    const account = privateKeyToAccount(
+      '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
+    )
+    const processId = `0x${'1'.repeat(62)}`
+    const store = createMemoryStore()
+    const sequencerDependencies = createSequencerDependencies({
+      verifyProcessStats: vi.fn(async ({ processId: nextProcessId, walletAddress }) => {
+        expect(walletAddress).toBe(account.address)
+
+        return {
+          addressWeight: '7',
+          hasVoted: true,
+          isInCensus: true,
+          processId: nextProcessId,
+        }
+      }),
+    })
+    const server = createApiServer(baseConfig, {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      now: () => new Date('2026-03-25T12:00:00.000Z').getTime(),
+      onchain: createOnchainDependencies(),
+      sequencer: sequencerDependencies,
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    })
+    const { sessionCookie } = await authenticateWallet(server, account)
+    const verifyResponse = await performRequest(server, {
+      body: JSON.stringify({
+        processId,
+      }),
+      headers: {
+        'content-type': 'application/json',
+        cookie: sessionCookie ?? '',
+      },
+      method: 'POST',
+      url: '/api/sequencer/verify',
+    })
+    const meResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/me',
+    })
+    const walletProfile = await store.getWalletProfile(account.address)
+
+    expect(verifyResponse.statusCode).toBe(200)
+    expect(JSON.parse(verifyResponse.body)).toEqual({
+      sequencer: {
+        addressWeight: '7',
+        error: null,
+        hasVoted: true,
+        isConnected: true,
+        isInCensus: true,
+        lastVerifiedAt: '2026-03-25T12:00:00.000Z',
+        processId,
+        processes: [
+          {
+            addressWeight: '7',
+            error: null,
+            hasVoted: true,
+            isInCensus: true,
+            lastVerifiedAt: '2026-03-25T12:00:00.000Z',
+            processId,
+            status: 'verified',
+          },
+        ],
+        numOfProcessAsParticipant: 1,
+        status: 'verified',
+        votesCasted: 1,
+      },
+    })
+    expect(JSON.parse(meResponse.body).stats.sequencer).toEqual({
+      lastVerifiedAt: '2026-03-25T12:00:00.000Z',
+      numOfProcessAsParticipant: 1,
+      processes: [processId],
+      votesCasted: 1,
+    })
+    expect(walletProfile?.sequencerSnapshot).toMatchObject({
+      addressWeight: '7',
+      error: null,
+      hasVoted: true,
+      isConnected: true,
+      isInCensus: true,
+      processId,
+      numOfProcessAsParticipant: 1,
+      processes: [
+        {
+          addressWeight: '7',
+          error: null,
+          hasVoted: true,
+          isInCensus: true,
+          lastVerifiedAt: '2026-03-25T12:00:00.000Z',
+          processId,
+          status: 'verified',
+        },
+      ],
+      status: 'verified',
+      votesCasted: 1,
+    })
+    expect(sequencerDependencies.verifyProcessStats).toHaveBeenCalled()
+  })
+
+  it('rejects invalid sequencer process ids before calling the sequencer', async () => {
+    const account = privateKeyToAccount(
+      '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
+    )
+    const store = createMemoryStore()
+    const sequencerDependencies = {
+      verifyProcessStats: vi.fn(async ({ processId }) => {
+        expect(processId).toBe('invalid-process-id')
+        throw new Error('Process id is invalid.')
+      }),
+    }
+    const server = createApiServer(baseConfig, {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      now: () => new Date('2026-03-25T12:00:00.000Z').getTime(),
+      onchain: createOnchainDependencies(),
+      sequencer: sequencerDependencies,
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    })
+    const { sessionCookie } = await authenticateWallet(server, account)
+    const response = await performRequest(server, {
+      body: JSON.stringify({
+        processId: 'invalid-process-id',
+      }),
+      headers: {
+        'content-type': 'application/json',
+        cookie: sessionCookie ?? '',
+      },
+      method: 'POST',
+      url: '/api/sequencer/verify',
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(JSON.parse(response.body)).toEqual({
+      message: 'Process id is invalid.',
+    })
+    expect(sequencerDependencies.verifyProcessStats).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects unauthenticated sequencer verification requests', async () => {
+    const store = createMemoryStore()
+    const sequencerDependencies = createSequencerDependencies()
+    const server = createApiServer(baseConfig, {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      now: () => new Date('2026-03-25T12:00:00.000Z').getTime(),
+      onchain: createOnchainDependencies(),
+      sequencer: sequencerDependencies,
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    })
+    const response = await performRequest(server, {
+      body: JSON.stringify({
+        processId: `0x${'1'.repeat(62)}`,
+      }),
+      headers: {
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+      url: '/api/sequencer/verify',
+    })
+
+    expect(response.statusCode).toBe(401)
+    expect(JSON.parse(response.body)).toEqual({
+      message: 'Unauthorized',
+    })
+    expect(sequencerDependencies.verifyProcessStats).not.toHaveBeenCalled()
+  })
+
+  it('preserves the last known sequencer snapshot when a live refresh fails', async () => {
+    const account = privateKeyToAccount(
+      '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
+    )
+    const store = createMemoryStore()
+    await store.upsertWalletProfile(account.address, {
+      lastAuthenticatedAt: new Date('2026-03-25T12:00:00.000Z'),
+      onchainSnapshot: {
+        error: null,
+        lastSyncedAt: new Date('2026-03-25T12:00:00.000Z'),
+        numberOfProcesses: 0,
+        totalVotes: '0',
+      },
+      scoreSnapshot: {
+        builderCompletedCount: 0,
+        builderCompletedQuestIds: [],
+        buildersPoints: 0,
+        lastComputedAt: new Date('2026-03-25T12:00:00.000Z'),
+        supporterCompletedCount: 0,
+        supporterCompletedQuestIds: [],
+        supportersPoints: 0,
+        totalPoints: 0,
+      },
+      sequencerSnapshot: {
+        addressWeight: '4',
+        error: null,
+        hasVoted: false,
+        isConnected: true,
+        isInCensus: true,
+        lastVerifiedAt: '2026-03-24T18:30:00.000Z',
+        processId: `0x${'2'.repeat(62)}`,
+        status: 'verified',
+      },
+    })
+    const sequencerDependencies = createSequencerDependencies({
+      verifyProcessStats: vi.fn(async () => {
+        throw new Error('Sequencer unavailable')
+      }),
+    })
+    const server = createApiServer(baseConfig, {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      now: () => new Date('2026-03-25T12:00:00.000Z').getTime(),
+      onchain: createOnchainDependencies(),
+      sequencer: sequencerDependencies,
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    })
+    const { sessionCookie } = await authenticateWallet(server, account)
+    const meResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/me',
+    })
+    const walletProfile = await store.getWalletProfile(account.address)
+
+    expect(meResponse.statusCode).toBe(200)
+    expect(JSON.parse(meResponse.body).stats.sequencer).toEqual({
+      lastVerifiedAt: '2026-03-24T18:30:00.000Z',
+      numOfProcessAsParticipant: 1,
+      processes: [`0x${'2'.repeat(62)}`],
+      votesCasted: 0,
+    })
+    expect(walletProfile?.sequencerSnapshot).toMatchObject({
+      addressWeight: '4',
+      error: 'Sequencer unavailable',
+      hasVoted: false,
+      isConnected: true,
+      isInCensus: true,
+      processId: `0x${'2'.repeat(62)}`,
+      numOfProcessAsParticipant: 1,
+      processes: [
+        {
+          addressWeight: '4',
+          error: 'Sequencer unavailable',
+          hasVoted: false,
+          isInCensus: true,
+          lastVerifiedAt: '2026-03-24T18:30:00.000Z',
+          processId: `0x${'2'.repeat(62)}`,
+          status: 'error',
+        },
+      ],
+      status: 'error',
+      votesCasted: 0,
     })
   })
 
@@ -1017,24 +1394,28 @@ describe('API server', () => {
         .mockResolvedValueOnce({
           displayName: 'Quest Master',
           isInTargetServer: true,
+          messagesInTargetChannel: 1,
           userId: '111111111111111111',
           username: 'questmaster',
         })
         .mockResolvedValueOnce({
           displayName: 'Quest Master',
           isInTargetServer: true,
+          messagesInTargetChannel: 1,
           userId: '111111111111111111',
           username: 'questmaster',
         })
         .mockResolvedValueOnce({
           displayName: 'Quest Master',
           isInTargetServer: true,
+          messagesInTargetChannel: 1,
           userId: '111111111111111111',
           username: 'questmaster',
         })
         .mockResolvedValueOnce({
           displayName: 'Duplicate Quest',
           isInTargetServer: true,
+          messagesInTargetChannel: 1,
           userId: '999999999999999999',
           username: 'duplicatequest',
         }),
@@ -1102,11 +1483,22 @@ describe('API server', () => {
     expect(callbackResponse.statusCode).toBe(302)
     expect(callbackResponse.getHeader('location')).toContain('link_provider=discord')
     expect(callbackResponse.getHeader('location')).toContain('link_status=success')
+    expect(discordDependencies.fetchUserStats).toHaveBeenCalledWith({
+      accessToken: 'discord-access-token',
+      botToken: baseConfig.discord.botToken,
+      channelId: baseConfig.discord.targetChannelId,
+      guildId: baseConfig.discord.guildId,
+    })
+    expect(JSON.parse(meResponse.body).stats.discord).toEqual({
+      isInTargetServer: true,
+      messagesInTargetChannel: 1,
+    })
     expect(JSON.parse(meResponse.body).identities.discord).toMatchObject({
       connected: true,
       displayName: 'Quest Master',
       stats: {
         isInTargetServer: true,
+        messagesInTargetChannel: 1,
       },
       userId: '111111111111111111',
       username: 'questmaster',
@@ -1350,25 +1742,28 @@ describe('API server', () => {
     const dependencies = {
       discord: {
         exchangeAuthorizationCode: vi.fn(),
-      fetchUserStats: vi
-        .fn()
-        .mockRejectedValueOnce(new DiscordApiError('Unauthorized', 401))
-        .mockResolvedValueOnce({
-          displayName: 'Quest Master',
+        fetchUserStats: vi
+          .fn()
+          .mockRejectedValueOnce(new DiscordApiError('Unauthorized', 401))
+          .mockResolvedValueOnce({
+            displayName: 'Quest Master',
             isInTargetServer: true,
-          userId: '111111111111111111',
-          username: 'questmaster',
-        })
-        .mockResolvedValueOnce({
-          displayName: 'Quest Master',
-          isInTargetServer: true,
-          userId: '111111111111111111',
-          username: 'questmaster',
-        })
-        .mockResolvedValueOnce({
-          displayName: 'Quest Master Redux',
-          isInTargetServer: false,
-          userId: '111111111111111111',
+            messagesInTargetChannel: 1,
+            userId: '111111111111111111',
+            username: 'questmaster',
+          })
+          .mockResolvedValueOnce({
+            displayName: 'Quest Master',
+            isInTargetServer: true,
+            messagesInTargetChannel: 1,
+            userId: '111111111111111111',
+            username: 'questmaster',
+          })
+          .mockResolvedValueOnce({
+            displayName: 'Quest Master Redux',
+            isInTargetServer: false,
+            messagesInTargetChannel: 1,
+            userId: '111111111111111111',
             username: 'questmasterredux',
           }),
         refreshAccessToken: vi.fn(async () => ({
@@ -1414,25 +1809,34 @@ describe('API server', () => {
     })
     expect(dependencies.discord.fetchUserStats).toHaveBeenNthCalledWith(1, {
       accessToken: 'old-access',
+      botToken: baseConfig.discord.botToken,
       guildId: baseConfig.discord.guildId,
+      channelId: baseConfig.discord.targetChannelId,
     })
     expect(dependencies.discord.fetchUserStats).toHaveBeenNthCalledWith(2, {
       accessToken: 'new-access-token',
+      botToken: baseConfig.discord.botToken,
       guildId: baseConfig.discord.guildId,
+      channelId: baseConfig.discord.targetChannelId,
     })
     expect(dependencies.discord.fetchUserStats).toHaveBeenNthCalledWith(3, {
       accessToken: 'new-access-token',
+      botToken: baseConfig.discord.botToken,
       guildId: baseConfig.discord.guildId,
+      channelId: baseConfig.discord.targetChannelId,
     })
     expect(dependencies.discord.fetchUserStats).toHaveBeenNthCalledWith(4, {
       accessToken: 'new-access-token',
+      botToken: baseConfig.discord.botToken,
       guildId: baseConfig.discord.guildId,
+      channelId: baseConfig.discord.targetChannelId,
     })
     expect(JSON.parse(firstMeResponse.body).identities.discord).toMatchObject({
       displayName: 'Quest Master',
       error: null,
       stats: {
         isInTargetServer: true,
+        messagesInTargetChannel: 1,
       },
       status: 'active',
       username: 'questmaster',
@@ -1442,6 +1846,7 @@ describe('API server', () => {
       error: null,
       stats: {
         isInTargetServer: false,
+        messagesInTargetChannel: 1,
       },
       status: 'active',
       username: 'questmasterredux',
@@ -1456,6 +1861,7 @@ describe('API server', () => {
       {
         createdAt: new Date('2026-03-23T00:00:00.000Z'),
         discordLastKnownIsInTargetServer: true,
+        discordLastKnownMessagesInTargetChannel: 9,
         displayName: 'Quest Master',
         encryptedAccessToken: encryptSecret('live-access', baseConfig.providerTokenEncryptionSecret),
         encryptedRefreshToken: encryptSecret(
@@ -1505,6 +1911,7 @@ describe('API server', () => {
       error: 'Rate limited',
       stats: {
         isInTargetServer: true,
+        messagesInTargetChannel: 9,
       },
       status: 'error',
       username: 'questmaster',
@@ -1654,18 +2061,18 @@ describe('API server', () => {
       displayName: 'Quest Master',
       error: 'Bad credentials',
       stats: {
-        isFollowingTargetOrganization: null,
-        isOlderThanOneYear: null,
-        publicNonForkRepositoryCount: null,
+        isFollowingTargetOrganization: true,
+        isOlderThanOneYear: true,
+        publicNonForkRepositoryCount: 9,
         targetOrganization: 'vocdoni',
         targetRepositories: [
           {
             fullName: 'vocdoni/davinciNode',
-            isStarred: null,
+            isStarred: true,
           },
           {
             fullName: 'vocdoni/davinciSDK',
-            isStarred: null,
+            isStarred: true,
           },
         ],
       },
@@ -1674,7 +2081,7 @@ describe('API server', () => {
     })
   })
 
-  it('recomputes Telegram stats on every /api/me request and reports live errors without cached fallback', async () => {
+  it('recomputes Telegram stats on every /api/me request and preserves the last known membership on errors', async () => {
     const account = privateKeyToAccount(
       '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
     )
@@ -1744,7 +2151,7 @@ describe('API server', () => {
     expect(JSON.parse(secondMeResponse.body).identities.telegram).toMatchObject({
       error: 'Forbidden: bot is not an administrator of the target chat.',
       stats: {
-        isInTargetChannel: null,
+        isInTargetChannel: true,
       },
       userId: '222222222',
       username: 'questcaptain',
@@ -1804,12 +2211,12 @@ describe('API server', () => {
 
     expect(onchain.fetchUserStats).toHaveBeenNthCalledWith(1, account.address)
     expect(onchain.fetchUserStats).toHaveBeenNthCalledWith(2, account.address)
-    expect(JSON.parse(firstMeResponse.body).onchain).toMatchObject({
+    expect(JSON.parse(firstMeResponse.body).stats.onchain).toMatchObject({
       error: null,
       numberOfProcesses: 3,
       totalVotes: '44',
     })
-    expect(JSON.parse(secondMeResponse.body).onchain).toMatchObject({
+    expect(JSON.parse(secondMeResponse.body).stats.onchain).toMatchObject({
       error: 'RPC rate limited.',
       numberOfProcesses: 0,
       totalVotes: '0',

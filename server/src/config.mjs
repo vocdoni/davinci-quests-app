@@ -118,6 +118,7 @@ export function parseServerConfig(env = process.env) {
     'DISCORD_CLIENT_SECRET',
     'DISCORD_GUILD_ID',
     'DISCORD_REDIRECT_URI',
+    'DISCORD_TARGET_CHANNEL_ID',
     'ENS_RPC_URL',
     'FRONTEND_APP_URL',
     'GITHUB_CLIENT_ID',
@@ -131,6 +132,7 @@ export function parseServerConfig(env = process.env) {
     'ONCHAIN_PROCESS_REGISTRY_START_BLOCK',
     'ONCHAIN_RPC_URL',
     'PROVIDER_TOKEN_ENCRYPTION_SECRET',
+    'SEQUENCER_API_URL',
     'TELEGRAM_APP_JWT_SECRET',
     'TELEGRAM_BOT_TOKEN',
     'TELEGRAM_CHANNEL_USERNAME',
@@ -158,9 +160,14 @@ export function parseServerConfig(env = process.env) {
         requireString(env, 'DISCORD_CLIENT_ID'),
       ),
       clientSecret: requireString(env, 'DISCORD_CLIENT_SECRET'),
+      botToken: readOptionalString(env, 'DISCORD_BOT_TOKEN'),
       guildId: parseSnowflake(
         'DISCORD_GUILD_ID',
         requireString(env, 'DISCORD_GUILD_ID'),
+      ),
+      targetChannelId: parseSnowflake(
+        'DISCORD_TARGET_CHANNEL_ID',
+        requireString(env, 'DISCORD_TARGET_CHANNEL_ID'),
       ),
       redirectUri: parseUrl(
         'DISCORD_REDIRECT_URI',
@@ -208,6 +215,12 @@ export function parseServerConfig(env = process.env) {
           requireString(env, 'ONCHAIN_PROCESS_REGISTRY_START_BLOCK'),
           0,
         ),
+      ),
+    },
+    sequencer: {
+      apiUrl: parseUrl(
+        'SEQUENCER_API_URL',
+        requireString(env, 'SEQUENCER_API_URL'),
       ),
     },
     port: env.PORT ? parseInteger('PORT', env.PORT, 1) : 3001,

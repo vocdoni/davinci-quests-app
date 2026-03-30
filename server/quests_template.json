@@ -4,6 +4,11 @@
         "title": "Quest title",
         "description": "Quest description",
         "points": 10,
-        "achievement": "stats.condition >= 10"
+        "achievement": "stats.condition >= 10",
+        "callToAction": {
+            "title": "Call to action title",
+            "help": "Call to action help text",
+            "url": "https://example.com"
+        }
     }
 ]

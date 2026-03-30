@@ -8,35 +8,27 @@ import { loadQuestCatalog, normalizeQuestCatalog } from './quests.mjs'
 
 describe('quest catalog helpers', () => {
   it('loads the bundled quest catalog from JSON', () => {
-    expect(loadQuestCatalog()).toEqual({
-      builders: [
-        {
-          achievement: 'github.targetRepositories[0].isStarred == true',
-          description:
-            'Enjoying Davinci Node? Star the repository on GitHub to support the project and help more developers discover it.',
-          id: 1,
-          points: 320,
-          title: 'Star the Davinci Node repo on GitHub',
-        },
-        {
-          achievement: 'github.targetRepositories[1].isStarred == true',
-          description:
-            'Want to build with Davinci? Explore our SDK, star the repository on GitHub, and start creating something great on the protocol.',
-          id: 2,
-          points: 420,
-          title: 'Star the Davinci SDK repo on GitHub',
-        },
-      ],
-      supporters: [
-        {
-          achievement: 'discord.isInTargetServer == true',
-          description:
-            'Join the Vocdoni Discord server to connect with the community, stay up to date, and get support when you need it.',
-          id: 1,
-          points: 100,
-          title: 'Join the Vocdoni Discord server',
-        },
-      ],
+    const catalog = loadQuestCatalog()
+
+    expect(catalog.builders).toHaveLength(2)
+    expect(catalog.supporters).toHaveLength(11)
+    expect(catalog.supporters.find((quest) => quest.id === 6)).toMatchObject({
+      achievement: 'sequencer.votesCasted >= 5',
+      callToAction: {
+        icon: 'BadgeCheck',
+        title: 'Verify a vote',
+        url: '/profile/sequencer',
+      },
+      connectButton: {
+        icon: 'Compass',
+        title: 'Explore AskTheWorld processes',
+        url: 'https://asktheworld.davinci.ninja/explore',
+      },
+    })
+    expect(catalog.supporters.find((quest) => quest.id === 14)).toMatchObject({
+      achievement: 'quests.supporters.completed == quests.supporters.total - 1',
+      id: 14,
+      points: 100,
     })
   })
 
@@ -68,6 +60,12 @@ describe('quest catalog helpers', () => {
         supporters: [
           {
             achievement: 'discord.isInTargetServer == true',
+            callToAction: {
+              help: 'Open the community page to join.',
+              icon: 'Discord',
+              title: 'Join now',
+              url: 'https://example.org/join',
+            },
             description: 'Custom supporter quest',
             id: 1,
             points: 25,
@@ -82,10 +80,132 @@ describe('quest catalog helpers', () => {
       supporters: [
         {
           achievement: 'discord.isInTargetServer == true',
+          callToAction: {
+            help: 'Open the community page to join.',
+            icon: 'Discord',
+            title: 'Join now',
+            url: 'https://example.org/join',
+          },
           description: 'Custom supporter quest',
           id: 1,
           points: 25,
           title: 'Custom supporter quest',
+        },
+      ],
+    })
+  })
+
+  it('accepts relative quest call to action routes', () => {
+    expect(
+      normalizeQuestCatalog({
+        builders: [],
+        supporters: [
+          {
+            achievement: 'sequencer.votesCasted >= 1',
+            callToAction: {
+              help: 'Open the sequencer page.',
+              icon: 'Map',
+              title: 'Verify process',
+              url: '/profile/sequencer',
+            },
+            description: 'Quest with an internal route CTA',
+            id: 1,
+            points: 10,
+            title: 'Quest with route CTA',
+          },
+        ],
+      }),
+    ).toEqual({
+      builders: [],
+      supporters: [
+        {
+          achievement: 'sequencer.votesCasted >= 1',
+          callToAction: {
+            help: 'Open the sequencer page.',
+            icon: 'Map',
+            title: 'Verify process',
+            url: '/profile/sequencer',
+          },
+          description: 'Quest with an internal route CTA',
+          id: 1,
+          points: 10,
+          title: 'Quest with route CTA',
+        },
+      ],
+    })
+  })
+
+  it('accepts relative quest connect button routes', () => {
+    expect(
+      normalizeQuestCatalog({
+        builders: [],
+        supporters: [
+          {
+            achievement: 'discord.isInTargetServer == true',
+            connectButton: {
+              icon: 'UserPlus',
+              title: 'Open profile',
+              url: '/profile/sequencer',
+            },
+            description: 'Quest with a connect button',
+            id: 1,
+            points: 10,
+            title: 'Quest with connect button',
+          },
+        ],
+      }),
+    ).toEqual({
+      builders: [],
+      supporters: [
+        {
+          achievement: 'discord.isInTargetServer == true',
+          connectButton: {
+            icon: 'UserPlus',
+            title: 'Open profile',
+            url: '/profile/sequencer',
+          },
+          description: 'Quest with a connect button',
+          id: 1,
+          points: 10,
+          title: 'Quest with connect button',
+        },
+      ],
+    })
+  })
+
+  it('normalizes optional quest call to actions', () => {
+    expect(
+      normalizeQuestCatalog({
+        builders: [],
+        supporters: [
+          {
+            achievement: 'discord.isInTargetServer == true',
+            callToAction: {
+              help: 'Optional helper copy',
+              title: 'Open link',
+              url: 'https://example.org/path',
+            },
+            description: 'Quest with a CTA',
+            id: 1,
+            points: 10,
+            title: 'Quest with CTA',
+          },
+        ],
+      }),
+    ).toEqual({
+      builders: [],
+      supporters: [
+        {
+          achievement: 'discord.isInTargetServer == true',
+          callToAction: {
+            help: 'Optional helper copy',
+            title: 'Open link',
+            url: 'https://example.org/path',
+          },
+          description: 'Quest with a CTA',
+          id: 1,
+          points: 10,
+          title: 'Quest with CTA',
         },
       ],
     })

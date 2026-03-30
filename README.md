@@ -83,6 +83,7 @@ Required values:
 - `ONCHAIN_PROCESS_REGISTRY_ADDRESS`
 - `ONCHAIN_PROCESS_REGISTRY_START_BLOCK`
 - `ONCHAIN_RPC_URL`
+- `SEQUENCER_API_URL`
 - `QUESTS_FILE_PATH`
   - optional override for the quest catalog JSON file
   - default local value can stay `./quests.json`
@@ -100,9 +101,17 @@ Discord values:
 
 - `DISCORD_CLIENT_ID`
 - `DISCORD_CLIENT_SECRET`
+- `DISCORD_BOT_TOKEN`
+  - optional, only needed to enable Discord channel message counting
 - `DISCORD_GUILD_ID`
+- `DISCORD_TARGET_CHANNEL_ID`
 - `DISCORD_REDIRECT_URI`
   - use `http://localhost:3001/api/connections/discord/callback`
+
+Sequencer values:
+
+- `SEQUENCER_API_URL`
+  - use the DaVinci sequencer base URL for your environment
 
 GitHub values:
 

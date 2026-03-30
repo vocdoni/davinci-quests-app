@@ -1,5 +1,6 @@
+import { watch } from 'node:fs'
 import { createServer } from 'node:http'
-import { resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { getAddress, isAddress, verifyMessage } from 'viem'
 import { loadDotEnvFiles } from './dotenv.mjs'
@@ -9,6 +10,7 @@ import {
   DiscordApiError,
   exchangeDiscordAuthorizationCode,
   fetchDiscordUserStats,
+  DISCORD_OAUTH_SCOPES,
   refreshDiscordAccessToken,
 } from './discord.mjs'
 import {
@@ -31,11 +33,19 @@ import {
 import { createMongoIdentityStore } from './mongo.mjs'
 import { createEnsDependencies } from './ens.mjs'
 import { createOnchainStatsDependencies } from './processRegistry.mjs'
-import { loadQuestCatalog } from './quests.mjs'
+import {
+  createSequencerDependencies,
+  markSequencerProcessError,
+  mergeSequencerProcessVerification,
+  normalizeSequencerSnapshot,
+  SequencerApiError,
+} from './sequencer.mjs'
+import { loadQuestCatalog, resolveQuestCatalogPath } from './quests.mjs'
 import {
   areScoreSnapshotsEqual,
   buildDefaultScoreSnapshot,
-  buildScoreSnapshot,
+  buildQuestStatsSummary,
+  buildScoreSnapshotFromLocalState,
 } from './scoring.mjs'
 import {
   buildWalletSignInMessage,
@@ -155,6 +165,15 @@ function containsTwitterProofCode(text, code) {
   return expression.test(text)
 }
 
+function logDiscordTrace(message, details = null) {
+  if (details === null || details === undefined) {
+    console.info(`[discord] ${message}`)
+    return
+  }
+
+  console.info(`[discord] ${message}`, details)
+}
+
 function buildDefaultGitHubStats(githubConfig) {
   const targetRepositories = Array.isArray(githubConfig?.targetRepositories)
     ? githubConfig.targetRepositories
@@ -209,7 +228,7 @@ function buildDefaultIdentity(provider, githubConfig = null) {
     error: null,
     stats:
       provider === 'discord'
-        ? { isInTargetServer: null }
+        ? { isInTargetServer: null, messagesInTargetChannel: null }
         : provider === 'github'
           ? buildDefaultGitHubStats(githubConfig)
         : provider === 'twitter'
@@ -229,6 +248,10 @@ function buildDefaultOnchain() {
   }
 }
 
+function buildDefaultSequencer() {
+  return normalizeSequencerSnapshot(null)
+}
+
 function buildDefaultScore() {
   return buildDefaultScoreSnapshot()
 }
@@ -237,6 +260,68 @@ function getDiscordLastKnownMembership(link) {
   return typeof link?.discordLastKnownIsInTargetServer === 'boolean'
     ? link.discordLastKnownIsInTargetServer
     : null
+}
+
+function getDiscordLastKnownMessageCount(link) {
+  return Number.isInteger(link?.discordLastKnownMessagesInTargetChannel)
+    ? link.discordLastKnownMessagesInTargetChannel
+    : null
+}
+
+function getGitHubLastKnownStats(link, githubConfig) {
+  const configuredRepositories = Array.isArray(githubConfig?.targetRepositories)
+    ? githubConfig.targetRepositories
+    : []
+  const storedRepositories = Array.isArray(link?.githubLastKnownTargetRepositories)
+    ? link.githubLastKnownTargetRepositories
+    : []
+  const storedRepositoriesMap = new Map()
+
+  for (const repository of storedRepositories) {
+    if (!repository || typeof repository !== 'object' || typeof repository.fullName !== 'string') {
+      continue
+    }
+
+    storedRepositoriesMap.set(
+      repository.fullName,
+      typeof repository.isStarred === 'boolean' ? repository.isStarred : null,
+    )
+  }
+
+  return {
+    isFollowingTargetOrganization:
+      typeof link?.githubLastKnownIsFollowingTargetOrganization === 'boolean'
+        ? link.githubLastKnownIsFollowingTargetOrganization
+        : null,
+    isOlderThanOneYear:
+      typeof link?.githubLastKnownIsOlderThanOneYear === 'boolean'
+        ? link.githubLastKnownIsOlderThanOneYear
+        : null,
+    publicNonForkRepositoryCount:
+      Number.isInteger(link?.githubLastKnownPublicNonForkRepositoryCount)
+        ? link.githubLastKnownPublicNonForkRepositoryCount
+        : null,
+    targetOrganization:
+      typeof link?.githubLastKnownTargetOrganization === 'string'
+        ? link.githubLastKnownTargetOrganization
+        : githubConfig?.targetOrganization ?? null,
+    targetRepositories: configuredRepositories.map((repository) => ({
+      fullName: repository.fullName,
+      isStarred: storedRepositoriesMap.has(repository.fullName)
+        ? storedRepositoriesMap.get(repository.fullName)
+        : null,
+    })),
+  }
+}
+
+function getTelegramLastKnownMembership(link) {
+  return typeof link?.telegramLastKnownIsInTargetChannel === 'boolean'
+    ? link.telegramLastKnownIsInTargetChannel
+    : null
+}
+
+function getStoredSequencerSnapshot(walletProfile) {
+  return normalizeSequencerSnapshot(walletProfile?.sequencerSnapshot)
 }
 
 function normalizeTimestamp(value) {
@@ -251,15 +336,72 @@ function normalizeTimestamp(value) {
 
 function buildConnectedIdentity(provider, link, options = {}, githubConfig = null) {
   const defaultIdentity = buildDefaultIdentity(provider, githubConfig)
+  const stats =
+    options.stats && typeof options.stats === 'object'
+      ? { ...defaultIdentity.stats, ...options.stats }
+      : defaultIdentity.stats
 
   return {
     connected: true,
     displayName: options.displayName ?? link.displayName ?? null,
     error: options.error ?? null,
-    stats: options.stats ?? defaultIdentity.stats,
+    stats,
     status: options.status ?? 'active',
     userId: options.userId ?? link.providerUserId ?? null,
     username: options.username ?? link.username ?? null,
+  }
+}
+
+function buildPublicDiscordStats(identity) {
+  return {
+    isInTargetServer: identity?.stats?.isInTargetServer ?? null,
+    messagesInTargetChannel: identity?.stats?.messagesInTargetChannel ?? null,
+  }
+}
+
+function buildPublicGitHubStats(identity) {
+  return {
+    isFollowingTargetOrganization: identity?.stats?.isFollowingTargetOrganization ?? null,
+    isOlderThanOneYear: identity?.stats?.isOlderThanOneYear ?? null,
+    publicNonForkRepositoryCount: identity?.stats?.publicNonForkRepositoryCount ?? null,
+    targetOrganization: identity?.stats?.targetOrganization ?? null,
+    targetRepositories: Array.isArray(identity?.stats?.targetRepositories)
+      ? identity.stats.targetRepositories.map((repository) => ({
+          fullName: repository.fullName,
+          isStarred: repository.isStarred ?? null,
+        }))
+      : [],
+  }
+}
+
+function buildPublicTelegramStats(identity) {
+  return {
+    isInTargetChannel: identity?.stats?.isInTargetChannel ?? null,
+  }
+}
+
+function buildPublicTwitterStats() {
+  return {}
+}
+
+function buildPublicSequencerStats(sequencer) {
+  const processes = Array.isArray(sequencer?.processes) ? sequencer.processes : []
+
+  return {
+    lastVerifiedAt:
+      typeof sequencer?.lastVerifiedAt === 'string' ? sequencer.lastVerifiedAt : null,
+    numOfProcessAsParticipant:
+      typeof sequencer?.numOfProcessAsParticipant === 'number' &&
+      sequencer.numOfProcessAsParticipant >= 0
+        ? sequencer.numOfProcessAsParticipant
+        : 0,
+    processes: processes
+      .map((process) => process?.processId)
+      .filter((processId) => typeof processId === 'string'),
+    votesCasted:
+      typeof sequencer?.votesCasted === 'number' && sequencer.votesCasted >= 0
+        ? sequencer.votesCasted
+        : 0,
   }
 }
 
@@ -335,10 +477,33 @@ function buildWalletResponse(walletAddress, walletProfile = null) {
   }
 }
 
-function buildProfileResponse(walletAddress, walletProfile, identities, onchain, score) {
+function buildProfileResponse(
+  walletAddress,
+  walletProfile,
+  identities,
+  onchain,
+  score,
+  questSummary,
+  sequencer,
+) {
+  const authenticatedOnchain = {
+    ...onchain,
+    address: walletAddress,
+    isConnected: Boolean(walletProfile?.lastAuthenticatedAt),
+  }
+  const stats = {
+    discord: buildPublicDiscordStats(identities.discord),
+    github: buildPublicGitHubStats(identities.github),
+    onchain: authenticatedOnchain,
+    quests: questSummary,
+    sequencer: buildPublicSequencerStats(sequencer),
+    telegram: buildPublicTelegramStats(identities.telegram),
+    twitter: buildPublicTwitterStats(),
+  }
+
   return {
     identities,
-    onchain,
+    stats,
     score,
     wallet: {
       ...buildWalletResponse(walletAddress, walletProfile),
@@ -399,8 +564,14 @@ async function persistDiscordLink(config, dependencies, walletAddress, tokenResp
     throw new Error('Discord account is already linked to another wallet.')
   }
 
+  const nextMessageCount =
+    stats.messagesInTargetChannel ??
+    existingLink?.discordLastKnownMessagesInTargetChannel ??
+    null
+
   return dependencies.store.upsertIdentityLink(walletAddress, 'discord', {
     discordLastKnownIsInTargetServer: stats.isInTargetServer,
+    discordLastKnownMessagesInTargetChannel: nextMessageCount,
     displayName: stats.displayName ?? null,
     encryptedAccessToken: encryptSecret(
       tokenResponse.accessToken,
@@ -456,6 +627,14 @@ async function persistGitHubLink(
       tokenResponse.accessToken,
       config.providerTokenEncryptionSecret,
     ),
+    githubLastKnownIsFollowingTargetOrganization: stats.isFollowingTargetOrganization,
+    githubLastKnownIsOlderThanOneYear: stats.isOlderThanOneYear,
+    githubLastKnownPublicNonForkRepositoryCount: stats.publicNonForkRepositoryCount,
+    githubLastKnownTargetOrganization: stats.targetOrganization ?? config.github.targetOrganization ?? null,
+    githubLastKnownTargetRepositories: normalizeGitHubTargetRepositories(
+      stats.targetRepositories,
+      config.github,
+    ),
     providerUserId: stats.userId,
     scope: tokenResponse.scope,
     tokenType: tokenResponse.tokenType,
@@ -493,12 +672,65 @@ async function clearPendingTwitterCode(dependencies, walletAddress) {
   })
 }
 
+async function persistSequencerSnapshot(dependencies, walletAddress, sequencer) {
+  return dependencies.store.upsertWalletProfile(walletAddress, {
+    sequencerSnapshot: normalizeSequencerSnapshot(sequencer),
+  })
+}
+
+async function resolveSequencerProfile(config, dependencies, walletAddress, walletProfile) {
+  const storedSnapshot = getStoredSequencerSnapshot(walletProfile)
+
+  if (storedSnapshot.processes.length === 0 || !dependencies.sequencer) {
+    return storedSnapshot
+  }
+
+  let nextSnapshot = storedSnapshot
+
+  for (const process of storedSnapshot.processes) {
+    if (!process.processId) {
+      continue
+    }
+
+    try {
+      const stats = await dependencies.sequencer.verifyProcessStats({
+        processId: process.processId,
+        walletAddress,
+      })
+
+      nextSnapshot = mergeSequencerProcessVerification(
+        nextSnapshot,
+        stats,
+        new Date(dependencies.now()).toISOString(),
+      )
+    } catch (error) {
+      nextSnapshot = markSequencerProcessError(
+        nextSnapshot,
+        process.processId,
+        getErrorMessage(error),
+        error instanceof SequencerApiError && error.status === 404 ? 'error' : 'error',
+      )
+    }
+  }
+
+  try {
+    if (walletProfile?.sequencerSnapshot) {
+      await persistSequencerSnapshot(dependencies, walletAddress, nextSnapshot)
+    }
+  } catch (error) {
+    console.warn(`Sequencer snapshot refresh failed for ${walletAddress}`, error)
+  }
+
+  return nextSnapshot
+}
+
 async function resolveDiscordIdentity(config, dependencies, link) {
   if (!link) {
     return buildDefaultIdentity('discord')
   }
 
   const lastKnownMembership = getDiscordLastKnownMembership(link)
+  const lastKnownMessageCount = getDiscordLastKnownMessageCount(link)
   let accessToken
 
   try {
@@ -509,7 +741,10 @@ async function resolveDiscordIdentity(config, dependencies, link) {
   } catch (error) {
     return buildConnectedIdentity('discord', link, {
       error: getErrorMessage(error),
-      stats: { isInTargetServer: lastKnownMembership },
+      stats: {
+        isInTargetServer: lastKnownMembership,
+        messagesInTargetChannel: lastKnownMessageCount,
+      },
       status: 'reauth_required',
     })
   }
@@ -517,10 +752,15 @@ async function resolveDiscordIdentity(config, dependencies, link) {
   try {
     const stats = await dependencies.discord.fetchUserStats({
       accessToken,
+      botToken: config.discord.botToken,
       guildId: config.discord.guildId,
+      channelId: config.discord.targetChannelId,
     })
+    const nextMessageCount =
+      stats.messagesInTargetChannel ?? lastKnownMessageCount
     const nextLink = await dependencies.store.upsertIdentityLink(link.walletAddress, 'discord', {
       discordLastKnownIsInTargetServer: stats.isInTargetServer,
+      discordLastKnownMessagesInTargetChannel: nextMessageCount,
       displayName: stats.displayName ?? null,
       providerUserId: stats.userId,
       username: stats.username ?? null,
@@ -530,6 +770,7 @@ async function resolveDiscordIdentity(config, dependencies, link) {
       displayName: stats.displayName ?? null,
       stats: {
         isInTargetServer: stats.isInTargetServer,
+        messagesInTargetChannel: nextMessageCount,
       },
       userId: stats.userId,
       username: stats.username ?? null,
@@ -538,7 +779,10 @@ async function resolveDiscordIdentity(config, dependencies, link) {
     if (!(error instanceof DiscordApiError) || (error.status !== 400 && error.status !== 401)) {
       return buildConnectedIdentity('discord', link, {
         error: getErrorMessage(error),
-        stats: { isInTargetServer: lastKnownMembership },
+        stats: {
+          isInTargetServer: lastKnownMembership,
+          messagesInTargetChannel: lastKnownMessageCount,
+        },
         status: 'error',
       })
     }
@@ -554,7 +798,10 @@ async function resolveDiscordIdentity(config, dependencies, link) {
   } catch (error) {
     return buildConnectedIdentity('discord', link, {
       error: getErrorMessage(error),
-      stats: { isInTargetServer: lastKnownMembership },
+      stats: {
+        isInTargetServer: lastKnownMembership,
+        messagesInTargetChannel: lastKnownMessageCount,
+      },
       status: 'reauth_required',
     })
   }
@@ -567,7 +814,9 @@ async function resolveDiscordIdentity(config, dependencies, link) {
     })
     const stats = await dependencies.discord.fetchUserStats({
       accessToken: tokenResponse.accessToken,
+      botToken: config.discord.botToken,
       guildId: config.discord.guildId,
+      channelId: config.discord.targetChannelId,
     })
     const nextLink = await persistDiscordLink(
       config,
@@ -581,6 +830,7 @@ async function resolveDiscordIdentity(config, dependencies, link) {
       displayName: stats.displayName ?? null,
       stats: {
         isInTargetServer: stats.isInTargetServer,
+        messagesInTargetChannel: stats.messagesInTargetChannel,
       },
       userId: stats.userId,
       username: stats.username ?? null,
@@ -588,7 +838,10 @@ async function resolveDiscordIdentity(config, dependencies, link) {
   } catch (error) {
     return buildConnectedIdentity('discord', link, {
       error: getErrorMessage(error),
-      stats: { isInTargetServer: lastKnownMembership },
+      stats: {
+        isInTargetServer: lastKnownMembership,
+        messagesInTargetChannel: lastKnownMessageCount,
+      },
       status:
         error instanceof DiscordApiError && (error.status === 400 || error.status === 401)
           ? 'reauth_required'
@@ -602,6 +855,7 @@ async function resolveGitHubIdentity(config, dependencies, link) {
     return buildDefaultIdentity('github', config.github)
   }
 
+  const lastKnownStats = getGitHubLastKnownStats(link, config.github)
   let accessToken
 
   try {
@@ -615,7 +869,7 @@ async function resolveGitHubIdentity(config, dependencies, link) {
       link,
       {
         error: getErrorMessage(error),
-        stats: buildDefaultGitHubStats(config.github),
+        stats: lastKnownStats,
         status: 'reauth_required',
       },
       config.github,
@@ -630,6 +884,14 @@ async function resolveGitHubIdentity(config, dependencies, link) {
     })
     const nextLink = await dependencies.store.upsertIdentityLink(link.walletAddress, 'github', {
       displayName: stats.displayName ?? null,
+      githubLastKnownIsFollowingTargetOrganization: stats.isFollowingTargetOrganization,
+      githubLastKnownIsOlderThanOneYear: stats.isOlderThanOneYear,
+      githubLastKnownPublicNonForkRepositoryCount: stats.publicNonForkRepositoryCount,
+      githubLastKnownTargetOrganization: stats.targetOrganization ?? config.github.targetOrganization ?? null,
+      githubLastKnownTargetRepositories: normalizeGitHubTargetRepositories(
+        stats.targetRepositories,
+        config.github,
+      ),
       providerUserId: stats.userId,
       username: stats.username ?? null,
     })
@@ -660,7 +922,7 @@ async function resolveGitHubIdentity(config, dependencies, link) {
       link,
       {
         error: getErrorMessage(error),
-        stats: buildDefaultGitHubStats(config.github),
+        stats: lastKnownStats,
         status: error instanceof GitHubApiError && error.status === 401 ? 'reauth_required' : 'error',
       },
       config.github,
@@ -673,6 +935,8 @@ async function resolveTelegramIdentity(config, dependencies, link) {
     return buildDefaultIdentity('telegram')
   }
 
+  const lastKnownMembership = getTelegramLastKnownMembership(link)
+
   try {
     const membership = await dependencies.telegram.fetchChannelMembership({
       botToken: config.telegram.botToken,
@@ -680,7 +944,14 @@ async function resolveTelegramIdentity(config, dependencies, link) {
       telegramUserId: link.providerUserId,
     })
 
-    return buildConnectedIdentity('telegram', link, {
+    const nextLink = await dependencies.store.upsertIdentityLink(link.walletAddress, 'telegram', {
+      displayName: link.displayName ?? null,
+      providerUserId: link.providerUserId,
+      telegramLastKnownIsInTargetChannel: membership.isInTargetChannel,
+      username: link.username ?? null,
+    })
+
+    return buildConnectedIdentity('telegram', nextLink, {
       stats: {
         isInTargetChannel: membership.isInTargetChannel,
       },
@@ -689,7 +960,7 @@ async function resolveTelegramIdentity(config, dependencies, link) {
     return buildConnectedIdentity('telegram', link, {
       error: getErrorMessage(error),
       stats: {
-        isInTargetChannel: null,
+        isInTargetChannel: lastKnownMembership,
       },
       status: 'error',
     })
@@ -767,6 +1038,8 @@ async function synchronizeWalletProfileSnapshot(
   )
   const shouldRefreshOnchain = options.force || isSnapshotStale(walletProfile?.onchainSnapshot?.lastSyncedAt, now)
   const shouldRefreshEns = options.force || isSnapshotStale(walletProfile?.ensResolvedAt, now)
+  const storedSequencerSnapshot = getStoredSequencerSnapshot(walletProfile)
+  const shouldRefreshSequencer = options.force || storedSequencerSnapshot.processes.length > 0
   const onchain = shouldRefreshOnchain
     ? await resolveOnchainProfile(dependencies, walletAddress)
     : normalizeStoredOnchainSnapshot(walletProfile?.onchainSnapshot)
@@ -775,15 +1048,21 @@ async function synchronizeWalletProfileSnapshot(
     : typeof walletProfile?.ensName === 'string'
       ? walletProfile.ensName
       : null
-  const score = buildScoreSnapshot(
+  const sequencer = shouldRefreshSequencer
+    ? await resolveSequencerProfile(config, dependencies, walletAddress, walletProfile)
+    : storedSequencerSnapshot
+  const normalizedStoredScore = normalizeStoredScoreSnapshot(walletProfile?.scoreSnapshot)
+  const score = buildScoreSnapshotFromLocalState(
     questCatalog,
     {
       identities,
       onchain,
+      sequencer,
+      lastAuthenticatedAt: walletProfile?.lastAuthenticatedAt ?? null,
     },
+    normalizedStoredScore,
     now,
   )
-  const normalizedStoredScore = normalizeStoredScoreSnapshot(walletProfile?.scoreSnapshot)
   const shouldRefreshScore =
     options.force ||
     isSnapshotStale(walletProfile?.scoreSnapshot?.lastComputedAt, now) ||
@@ -813,6 +1092,9 @@ async function synchronizeWalletProfileSnapshot(
             ...onchain,
             lastSyncedAt: new Date(now),
           },
+      sequencerSnapshot: shouldRefreshSequencer
+        ? sequencer
+        : walletProfile?.sequencerSnapshot ?? sequencer,
       scoreSnapshot: shouldRefreshScore
         ? score
         : walletProfile?.scoreSnapshot ?? score,
@@ -823,8 +1105,10 @@ async function synchronizeWalletProfileSnapshot(
     identities,
     onchain,
     score,
+    sequencer,
     walletProfile: nextProfile ?? {
       ensName,
+      sequencerSnapshot: sequencer,
       scoreSnapshot: score,
       walletAddress,
     },
@@ -854,11 +1138,101 @@ async function refreshWalletProfileSnapshot(
   }
 }
 
+function buildLocalProfileFromStoredState(config, walletProfile, links) {
+  const linkMap = new Map(links.map((link) => [link.provider, link]))
+  const discordLink = linkMap.get('discord') ?? null
+  const githubLink = linkMap.get('github') ?? null
+  const telegramLink = linkMap.get('telegram') ?? null
+  const twitterLink = linkMap.get('twitter') ?? null
+  const sequencer = getStoredSequencerSnapshot(walletProfile)
+
+  return {
+    identities: {
+      discord: discordLink
+        ? buildConnectedIdentity('discord', discordLink, {
+            stats: {
+              isInTargetServer: getDiscordLastKnownMembership(discordLink),
+              messagesInTargetChannel: getDiscordLastKnownMessageCount(discordLink),
+            },
+          })
+        : buildDefaultIdentity('discord'),
+      github: githubLink
+        ? buildConnectedIdentity(
+            'github',
+            githubLink,
+            {
+              stats: getGitHubLastKnownStats(githubLink, config.github),
+            },
+            config.github,
+          )
+        : buildDefaultIdentity('github', config.github),
+      telegram: telegramLink
+        ? buildConnectedIdentity('telegram', telegramLink, {
+            stats: {
+              isInTargetChannel: getTelegramLastKnownMembership(telegramLink),
+            },
+          })
+        : buildDefaultIdentity('telegram'),
+      twitter: twitterLink
+        ? buildConnectedIdentity('twitter', twitterLink, {
+            stats: {},
+          })
+        : buildDefaultIdentity('twitter'),
+    },
+    lastAuthenticatedAt: walletProfile?.lastAuthenticatedAt ?? null,
+    onchain: normalizeStoredOnchainSnapshot(walletProfile?.onchainSnapshot),
+    sequencer,
+  }
+}
+
+export async function rebuildStoredScoresFromLocalState(config, dependencies, questCatalog) {
+  const now = dependencies.now()
+  const profiles = await dependencies.store.listLeaderboardWalletProfiles(Number.MAX_SAFE_INTEGER)
+
+  await Promise.all(
+    profiles.map(async (profile) => {
+      try {
+        const links = await dependencies.store.listIdentityLinks(profile.walletAddress)
+        const localProfile = buildLocalProfileFromStoredState(config, profile, links)
+        const normalizedStoredScore = normalizeStoredScoreSnapshot(profile.scoreSnapshot)
+        const nextScore = buildScoreSnapshotFromLocalState(
+          questCatalog,
+          localProfile,
+          normalizedStoredScore,
+          now,
+        )
+
+        if (
+          areScoreSnapshotsEqual(
+            {
+              ...normalizedStoredScore,
+              lastComputedAt: null,
+            },
+            {
+              ...nextScore,
+              lastComputedAt: null,
+            },
+          )
+        ) {
+          return
+        }
+
+        await dependencies.store.upsertWalletProfile(profile.walletAddress, {
+          scoreSnapshot: nextScore,
+        })
+      } catch (error) {
+        console.warn(`Failed to recalculate score snapshot for ${profile.walletAddress}`, error)
+      }
+    }),
+  )
+}
+
 export function createApiDependencies({
   ens = null,
   fetchImpl = fetch,
   now = () => Date.now(),
   onchain = null,
+  sequencer = null,
   store,
   verifyMessageImpl = verifyMessage,
 } = {}) {
@@ -885,6 +1259,7 @@ export function createApiDependencies({
     },
     now,
     onchain,
+    sequencer,
     store,
     telegram: {
       exchangeAuthorizationCode: (parameters) =>
@@ -1091,6 +1466,8 @@ async function handleGetMe(config, dependencies, questCatalog, request, response
       snapshot.identities,
       snapshot.onchain,
       snapshot.score,
+      buildQuestStatsSummary({ score: snapshot.score }, questCatalog),
+      snapshot.sequencer,
     ),
   )
 }
@@ -1238,6 +1615,63 @@ async function handleTwitterVerify(config, dependencies, questCatalog, request, 
   noContent(response)
 }
 
+async function handleSequencerVerify(config, dependencies, questCatalog, request, response) {
+  const session = getAuthenticatedSession(request, config, dependencies)
+
+  if (!session) {
+    buildUnauthorizedResponse(response)
+    return
+  }
+
+  const body = await readRequestJson(response, request)
+
+  if (body === null) {
+    return
+  }
+
+  if (typeof body?.processId !== 'string' || body.processId.trim().length === 0) {
+    json(response, 400, { message: 'Process id is required.' })
+    return
+  }
+
+  if (!dependencies.sequencer || typeof dependencies.sequencer.verifyProcessStats !== 'function') {
+    json(response, 500, { message: 'Sequencer dependency is not configured.' })
+    return
+  }
+
+  try {
+    const sequencer = await dependencies.sequencer.verifyProcessStats({
+      processId: body.processId,
+      walletAddress: session.walletAddress,
+    })
+    const walletProfile = await dependencies.store.getWalletProfile(session.walletAddress)
+    const nextSnapshot = mergeSequencerProcessVerification(
+      getStoredSequencerSnapshot(walletProfile),
+      sequencer,
+      new Date(dependencies.now()).toISOString(),
+    )
+
+    await persistSequencerSnapshot(dependencies, session.walletAddress, nextSnapshot)
+    await refreshWalletProfileSnapshot(
+      config,
+      dependencies,
+      questCatalog,
+      session.walletAddress,
+    )
+
+    json(response, 200, {
+      sequencer: nextSnapshot,
+    })
+  } catch (error) {
+    if (error instanceof SequencerApiError) {
+      json(response, error.status, { message: getErrorMessage(error) })
+      return
+    }
+
+    json(response, 400, { message: getErrorMessage(error) })
+  }
+}
+
 async function handleDeleteConnection(config, dependencies, questCatalog, requestUrl, request, response) {
   const session = getAuthenticatedSession(request, config, dependencies)
 
@@ -1284,18 +1718,36 @@ async function handleDiscordStart(config, dependencies, request, response) {
     dependencies.now(),
   )
 
+  logDiscordTrace('building authorization url', {
+    guildId: config.discord.guildId,
+    redirectUri: config.discord.redirectUri,
+    scopes: DISCORD_OAUTH_SCOPES,
+    targetChannelId: config.discord.targetChannelId,
+  })
   redirect(response, buildDiscordAuthorizationUrl(config.discord, state))
 }
 
 async function handleDiscordCallback(config, dependencies, questCatalog, requestUrl, request, response) {
   const stateToken = requestUrl.searchParams.get('state')
   const code = requestUrl.searchParams.get('code')
-  const authError = requestUrl.searchParams.get('error_description')
+  const authError = requestUrl.searchParams.get('error')
+  const authErrorDescription = requestUrl.searchParams.get('error_description')
 
-  if (authError) {
+  logDiscordTrace('callback received', {
+    hasCode: Boolean(code),
+    hasState: Boolean(stateToken),
+    error: authError,
+    errorDescription: authErrorDescription,
+  })
+
+  if (authError || authErrorDescription) {
+    console.warn('[discord] authorization redirect failed', {
+      error: authError,
+      errorDescription: authErrorDescription,
+    })
     redirect(
       response,
-      createLinkErrorRedirect(config, 'discord', authError),
+      createLinkErrorRedirect(config, 'discord', authErrorDescription ?? authError ?? 'Discord login could not be completed.'),
     )
     return
   }
@@ -1335,15 +1787,26 @@ async function handleDiscordCallback(config, dependencies, questCatalog, request
   }
 
   try {
+    logDiscordTrace('exchanging authorization code', {
+      guildId: config.discord.guildId,
+      redirectUri: config.discord.redirectUri,
+      targetChannelId: config.discord.targetChannelId,
+    })
     const tokenResponse = await dependencies.discord.exchangeAuthorizationCode({
       clientId: config.discord.clientId,
       clientSecret: config.discord.clientSecret,
       code,
       redirectUri: config.discord.redirectUri,
     })
+    logDiscordTrace('loading live discord stats', {
+      guildId: config.discord.guildId,
+      targetChannelId: config.discord.targetChannelId,
+    })
     const stats = await dependencies.discord.fetchUserStats({
       accessToken: tokenResponse.accessToken,
+      botToken: config.discord.botToken,
       guildId: config.discord.guildId,
+      channelId: config.discord.targetChannelId,
     })
 
     if (!stats.userId || !stats.username) {
@@ -1366,6 +1829,10 @@ async function handleDiscordCallback(config, dependencies, questCatalog, request
 
     redirect(response, createLinkSuccessRedirect(config, 'discord'))
   } catch (error) {
+    console.warn('[discord] callback failed', {
+      message: getErrorMessage(error),
+      status: error instanceof DiscordApiError ? error.status : null,
+    })
     redirect(
       response,
       createLinkErrorRedirect(config, 'discord', getErrorMessage(error)),
@@ -1596,7 +2063,40 @@ function matchesApiPath(pathname, prefix) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`)
 }
 
-export function createApiServer(config, dependencies, { questCatalog = loadQuestCatalog() } = {}) {
+function watchQuestCatalogFile(config, dependencies, reload) {
+  const questCatalogPath = resolveQuestCatalogPath(config.questCatalogPath)
+  const watchDirectory = dirname(questCatalogPath)
+  const watchTarget = basename(questCatalogPath)
+  let pendingReload = null
+
+  const scheduleReload = () => {
+    if (pendingReload !== null) {
+      clearTimeout(pendingReload)
+    }
+
+    pendingReload = setTimeout(() => {
+      pendingReload = null
+      void reload().catch((error) => {
+        console.warn(`Quest catalog reload failed for ${questCatalogPath}`, error)
+      })
+    }, 100)
+  }
+
+  return watch(watchDirectory, { persistent: true }, (_eventType, filename) => {
+    if (filename && filename.toString() === watchTarget) {
+      scheduleReload()
+    }
+  })
+}
+
+export function createApiServer(
+  config,
+  dependencies,
+  { questCatalog: questCatalogOverride = null } = {},
+) {
+  const getQuestCatalog = () =>
+    questCatalogOverride ?? loadQuestCatalog(config.questCatalogPath)
+
   return createServer((request, response) => {
     const requestUrl = new URL(
       request.url ?? '/',
@@ -1618,6 +2118,8 @@ export function createApiServer(config, dependencies, { questCatalog = loadQuest
     }
 
     const handleRequest = async () => {
+      const questCatalog = getQuestCatalog()
+
       if (request.method === 'POST' && requestUrl.pathname === '/api/auth/wallet/challenge') {
         await handleWalletChallenge(config, dependencies, request, response)
         return
@@ -1718,6 +2220,11 @@ export function createApiServer(config, dependencies, { questCatalog = loadQuest
         return
       }
 
+      if (request.method === 'POST' && requestUrl.pathname === '/api/sequencer/verify') {
+        await handleSequencerVerify(config, dependencies, questCatalog, request, response)
+        return
+      }
+
       if (request.method === 'DELETE' && requestUrl.pathname.startsWith('/api/connections/')) {
         await handleDeleteConnection(
           config,
@@ -1759,19 +2266,45 @@ if (isDirectRun) {
   const config = parseServerConfig(process.env)
   const questCatalog = loadQuestCatalog(config.questCatalogPath)
   const store = await createMongoIdentityStore(config)
+  await rebuildStoredScoresFromLocalState(
+    config,
+    {
+      now: () => Date.now(),
+      store,
+    },
+    questCatalog,
+  )
   const server = createApiServer(
     config,
     createApiDependencies({
       ens: createEnsDependencies(config),
       onchain: createOnchainStatsDependencies(config),
+      sequencer: createSequencerDependencies(config),
       store,
     }),
-    {
-      questCatalog,
-    },
   )
+
+  const questCatalogWatcher = watchQuestCatalogFile(config, {
+    now: () => Date.now(),
+    store,
+  }, async () => {
+    const nextQuestCatalog = loadQuestCatalog(config.questCatalogPath)
+
+    await rebuildStoredScoresFromLocalState(
+      config,
+      {
+        now: () => Date.now(),
+        store,
+      },
+      nextQuestCatalog,
+    )
+  })
 
   server.listen(config.port, () => {
     console.log(`API listening on http://localhost:${config.port}`)
+  })
+
+  process.on('exit', () => {
+    questCatalogWatcher.close()
   })
 }

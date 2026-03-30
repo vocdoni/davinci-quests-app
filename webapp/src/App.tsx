@@ -17,74 +17,37 @@ import davinciLogo from './assets/davinci-logo.png'
 import type { AppConfig } from './config'
 import { useLeaderboard } from './hooks/useLeaderboard'
 import { useAppSession } from './hooks/useAppSession'
+import type { AppProfile } from './hooks/useAppSession'
 import { useQuests } from './hooks/useQuests'
 import { useWalletConnection } from './hooks/useWalletConnection'
 import { FaqPage } from './routes/FaqPage'
 import { LeaderboardPage } from './routes/LeaderboardPage'
 import { ProfilePage } from './routes/ProfilePage'
+import { SequencerPage } from './routes/SequencerPage'
 import { QuestsPage } from './routes/QuestsPage'
 import { RulesPage } from './routes/RulesPage'
 import type { ConnectionRow, ConnectionVariant, TwitterProofState } from './routes/types'
-import type { QuestRole } from './lib/quests'
+import {
+  buildQuestStatsSummary,
+  buildQuestAchievementContext,
+  getQuestProgressHint,
+  type QuestRequirementSource,
+  type QuestRole,
+} from './lib/quests'
+import type { SequencerStats, SequencerVerification } from './hooks/useAppSession'
 import './App.css'
 
 type AppProps = {
   config: AppConfig
 }
 
-type AppPage = 'faq' | 'leaderboard' | 'profile' | 'quests' | 'rules'
+type AppPage = 'faq' | 'leaderboard' | 'profile' | 'quests' | 'rules' | 'sequencer'
 
 type OAuthProvider = Exclude<ConnectionVariant, 'twitter'>
 
-type StatsPayload = {
-  discord: {
-    error: string | null
-    isConnected: boolean
-    isInTargetServer: boolean | null
-    status: string
-    userId: string | null
-    username: string | null
-  }
-  github: {
-    displayName: string | null
-    error: string | null
-    isConnected: boolean
-    isFollowingTargetOrganization: boolean | null
-    isOlderThanOneYear: boolean | null
-    publicNonForkRepositoryCount: number | null
-    status: string
-    targetOrganization: string | null
-    targetRepositories: Array<{
-      fullName: string
-      isStarred: boolean | null
-    }>
-    userId: string | null
-    username: string | null
-  }
-  onchain: {
-    address: string
-    error: string | null
-    numberOfProcesses: number
-    totalVotes: string
-  }
-  telegram: {
-    displayName: string | null
-    error: string | null
-    isConnected: boolean
-    isInTargetChannel: boolean | null
-    status: string
-    userId: string | null
-    username: string | null
-  }
-  twitter: {
-    displayName: string | null
-    error: string | null
-    isConnected: boolean
-    status: string
-    userId: string | null
-    username: string | null
-  }
-}
+type StatsPayload = AppProfile['stats']
+
+type QuestSourceConnections = Record<QuestRequirementSource, boolean>
 
 const PROVIDER_LABELS = {
   discord: 'Discord',
@@ -142,6 +105,10 @@ function normalizePathname(pathname: string) {
 }
 
 function getPathForPage(page: AppPage) {
+  if (page === 'sequencer') {
+    return '/profile/sequencer'
+  }
+
   if (page === 'quests') {
     return '/'
   }
@@ -162,6 +129,10 @@ function getPageFromPathname(pathname: string): AppPage {
 
   if (normalizedPath === '/profile') {
     return 'profile'
+  }
+
+  if (normalizedPath === '/profile/sequencer') {
+    return 'sequencer'
   }
 
   if (normalizedPath === '/rules') {
@@ -199,55 +170,21 @@ function getStatsPayload({
     return null
   }
 
+  return session.profile.stats
+}
+
+function getQuestSourceConnections({
+  session,
+}: {
+  session: ReturnType<typeof useAppSession>
+}): QuestSourceConnections {
   return {
-    discord: {
-      error: session.profile.identities.discord.error,
-      isConnected: session.profile.identities.discord.connected,
-      isInTargetServer: session.profile.identities.discord.stats.isInTargetServer,
-      status: session.profile.identities.discord.status,
-      userId: session.profile.identities.discord.userId,
-      username:
-        session.profile.identities.discord.displayName ??
-        session.profile.identities.discord.username,
-    },
-    github: {
-      displayName: session.profile.identities.github.displayName,
-      error: session.profile.identities.github.error,
-      isConnected: session.profile.identities.github.connected,
-      isFollowingTargetOrganization:
-        session.profile.identities.github.stats.isFollowingTargetOrganization,
-      isOlderThanOneYear: session.profile.identities.github.stats.isOlderThanOneYear,
-      publicNonForkRepositoryCount:
-        session.profile.identities.github.stats.publicNonForkRepositoryCount,
-      status: session.profile.identities.github.status,
-      targetOrganization: session.profile.identities.github.stats.targetOrganization,
-      targetRepositories: session.profile.identities.github.stats.targetRepositories,
-      userId: session.profile.identities.github.userId,
-      username: session.profile.identities.github.username,
-    },
-    onchain: {
-      address: wallet.address,
-      error: session.profile.onchain.error,
-      numberOfProcesses: session.profile.onchain.numberOfProcesses,
-      totalVotes: session.profile.onchain.totalVotes,
-    },
-    telegram: {
-      displayName: session.profile.identities.telegram.displayName,
-      error: session.profile.identities.telegram.error,
-      isConnected: session.profile.identities.telegram.connected,
-      isInTargetChannel: session.profile.identities.telegram.stats.isInTargetChannel,
-      status: session.profile.identities.telegram.status,
-      userId: session.profile.identities.telegram.userId,
-      username: session.profile.identities.telegram.username,
-    },
-    twitter: {
-      displayName: session.profile.identities.twitter.displayName,
-      error: session.profile.identities.twitter.error,
-      isConnected: session.profile.identities.twitter.connected,
-      status: session.profile.identities.twitter.status,
-      userId: session.profile.identities.twitter.userId,
-      username: session.profile.identities.twitter.username,
-    },
+    discord: Boolean(session.profile?.identities.discord.connected),
+    github: Boolean(session.profile?.identities.github.connected),
+    onchain: Boolean(session.profile?.stats.onchain.isConnected),
+    sequencer: Boolean(session.profile?.stats.sequencer.processes.length),
+    telegram: Boolean(session.profile?.identities.telegram.connected),
+    twitter: Boolean(session.profile?.identities.twitter.connected),
   }
 }
 
@@ -279,9 +216,15 @@ function App({ config }: AppProps) {
   const [shouldFinishNavbarLogin, setShouldFinishNavbarLogin] = useState(false)
   const [twitterError, setTwitterError] = useState<string | null>(null)
   const [twitterProof, setTwitterProof] = useState<TwitterProofState | null>(null)
+  const [sequencerError, setSequencerError] = useState<string | null>(null)
+  const [sequencerProcessId, setSequencerProcessId] = useState('')
+  const [sequencerResult, setSequencerResult] = useState<SequencerVerification | null>(null)
   const [providerAction, setProviderAction] = useState<
-    OAuthProvider | 'twitter' | null
+    OAuthProvider | 'sequencer' | 'twitter' | null
   >(null)
+  const questSourceConnections = getQuestSourceConnections({
+    session,
+  })
   const payload = getStatsPayload({
     session,
     wallet,
@@ -360,6 +303,9 @@ function App({ config }: AppProps) {
       setShouldFinishNavbarLogin(false)
       setTwitterError(null)
       setTwitterProof(null)
+      setSequencerError(null)
+      setSequencerResult(null)
+      setSequencerProcessId('')
     }
   }, [wallet.isConnected])
 
@@ -591,6 +537,31 @@ function App({ config }: AppProps) {
     }
   }
 
+  const handleSequencerVerify = async () => {
+    const normalizedProcessId = sequencerProcessId.trim()
+
+    if (!normalizedProcessId) {
+      setSequencerError('Process id is required.')
+      return
+    }
+
+    setSequencerError(null)
+    setProviderAction('sequencer')
+
+    try {
+      const response = await session.verifySequencerProcess(normalizedProcessId)
+      setSequencerResult(response.sequencer)
+      setSequencerProcessId(response.sequencer.processId ?? normalizedProcessId)
+      await session.refetchProfile()
+    } catch (error) {
+      setSequencerError(
+        error instanceof Error ? error.message : 'Process verification failed.',
+      )
+    } finally {
+      setProviderAction(null)
+    }
+  }
+
   const feedbackMessage = linkFeedback
     ? linkFeedback.status === 'success'
       ? `${getProviderLabel(linkFeedback.provider)} linked successfully.`
@@ -630,11 +601,12 @@ function App({ config }: AppProps) {
       (!wallet.isConnected && wallet.connectors.length === 0))
   const profileRequiresSignIn = !session.isAuthenticated
   const signedAddress = session.sessionWalletAddress ?? wallet.address ?? null
+  const sequencerSnapshot: SequencerStats | null = session.profile?.stats.sequencer ?? null
   const activeQuestList = quests.data?.[selectedQuestRole] ?? []
-  const allQuestLists: Record<QuestRole, typeof activeQuestList> = {
-    builders: quests.data?.builders ?? [],
-    supporters: quests.data?.supporters ?? [],
-  }
+  const questAchievementContext = buildQuestAchievementContext(
+    session.profile,
+    quests.data,
+  )
   const questCounts: Record<QuestRole, number> = {
     builders: quests.data?.builders.length ?? 0,
     supporters: quests.data?.supporters.length ?? 0,
@@ -646,26 +618,9 @@ function App({ config }: AppProps) {
   const resolvedQuests = activeQuestList.map((quest) => ({
     ...quest,
     isCompleted: completedQuestIdsByRole[selectedQuestRole].has(quest.id),
+    progressHint: getQuestProgressHint(quest.achievement, questAchievementContext),
   }))
-  const questProgressByRole: Record<
-    QuestRole,
-    {
-      completedCount: number
-      earnedPoints: number
-      totalCount: number
-    }
-  > = {
-    builders: {
-      completedCount: session.profile?.score.builderCompletedCount ?? 0,
-      earnedPoints: session.profile?.score.buildersPoints ?? 0,
-      totalCount: allQuestLists.builders.length,
-    },
-    supporters: {
-      completedCount: session.profile?.score.supporterCompletedCount ?? 0,
-      earnedPoints: session.profile?.score.supportersPoints ?? 0,
-      totalCount: allQuestLists.supporters.length,
-    },
-  }
+  const questProgressByRole = buildQuestStatsSummary(session.profile, quests.data)
   const totalEarnedQuestPoints = session.profile?.score.totalPoints ?? 0
   const isGithubConnected = Boolean(session.profile?.identities.github.connected)
   const questLoadingMessage = quests.isPending ? 'Loading quests...' : null
@@ -769,9 +724,25 @@ function App({ config }: AppProps) {
         questsAreError={quests.isError}
         resolvedQuests={resolvedQuests}
         selectedQuestRole={selectedQuestRole}
+        sourceConnections={questSourceConnections}
         totalEarnedQuestPoints={totalEarnedQuestPoints}
         onNavigateToProfile={() => {
           navigateToPage('profile')
+        }}
+        onNavigateToPath={(path) => {
+          if (typeof window === 'undefined') {
+            return
+          }
+
+          const normalizedPath = path === '/' ? '/' : path.replace(/\/+$/, '')
+          const nextPage = getPageFromPathname(normalizedPath)
+          const nextPath = getPathForPage(nextPage)
+
+          if (window.location.pathname !== nextPath) {
+            window.history.pushState(null, document.title, nextPath)
+          }
+
+          setCurrentPage(nextPage)
         }}
         onSelectQuestRole={setSelectedQuestRole}
       />
@@ -796,6 +767,10 @@ function App({ config }: AppProps) {
         isSignedIn={session.isAuthenticated}
         profileRequiresSignIn={profileRequiresSignIn}
         providerAction={providerAction}
+        sequencerSnapshot={sequencerSnapshot}
+        onNavigateToSequencer={() => {
+          navigateToPage('sequencer')
+        }}
         showSessionPanel={wallet.isConnected || session.isAuthenticated}
         signedAddress={signedAddress}
         twitterProof={twitterProof}
@@ -814,6 +789,27 @@ function App({ config }: AppProps) {
         }}
         onTwitterVerify={() => {
           void handleTwitterVerify()
+        }}
+      />
+    )
+  } else if (currentPage === 'sequencer') {
+    pageContent = (
+      <SequencerPage
+        currentSnapshot={sequencerSnapshot}
+        errorMessage={sequencerError}
+        isSessionActionDisabled={
+          wallet.isConnecting || wallet.isSwitching || isSigningIn || providerAction !== null
+        }
+        isSignedIn={session.isAuthenticated}
+        processId={sequencerProcessId}
+        profileRequiresSignIn={profileRequiresSignIn}
+        recentResult={sequencerResult}
+        onNavigateToProfile={() => {
+          navigateToPage('profile')
+        }}
+        onProcessIdChange={setSequencerProcessId}
+        onVerify={() => {
+          void handleSequencerVerify()
         }}
       />
     )

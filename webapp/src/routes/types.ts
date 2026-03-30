@@ -1,4 +1,4 @@
-import type { QuestDefinition, QuestRole } from '../lib/quests'
+import type { QuestDefinition, QuestProgressHint, QuestRole } from '../lib/quests'
 
 export type ConnectionVariant = 'discord' | 'github' | 'telegram' | 'twitter'
 
@@ -14,14 +14,15 @@ export type ConnectionRow = {
 export type QuestProgressSummary = Record<
   QuestRole,
   {
-    completedCount: number
-    earnedPoints: number
-    totalCount: number
+    completed: number
+    points: number
+    total: number
   }
 >
 
 export type ResolvedQuest = QuestDefinition & {
   isCompleted: boolean
+  progressHint: QuestProgressHint | null
 }
 
 export type TwitterProofState = {

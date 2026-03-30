@@ -4,6 +4,7 @@ import {
   Telegram,
   X,
 } from 'iconoir-react'
+import type { SequencerStats } from '../hooks/useAppSession'
 import type { ConnectionRow, ConnectionVariant, TwitterProofState } from './types'
 
 type ProfilePageProps = {
@@ -11,7 +12,9 @@ type ProfilePageProps = {
   isSessionActionDisabled: boolean
   isSignedIn: boolean
   profileRequiresSignIn: boolean
-  providerAction: ConnectionVariant | null
+  providerAction: ConnectionVariant | 'sequencer' | null
+  sequencerSnapshot: SequencerStats | null
+  onNavigateToSequencer: () => void
   showSessionPanel: boolean
   signedAddress: string | null
   twitterProof: TwitterProofState | null
@@ -42,6 +45,8 @@ export function ProfilePage({
   isSignedIn,
   profileRequiresSignIn,
   providerAction,
+  sequencerSnapshot,
+  onNavigateToSequencer,
   showSessionPanel,
   signedAddress,
   twitterProof,
@@ -49,6 +54,8 @@ export function ProfilePage({
   onTwitterProofChange,
   onTwitterVerify,
 }: ProfilePageProps) {
+  const sequencerProcessCount = sequencerSnapshot?.processes.length ?? 0
+
   return (
     <section className="profile-stack">
       <div className="content-panel page-panel">
@@ -118,6 +125,38 @@ export function ProfilePage({
               </div>
             </article>
           ))}
+        </div>
+
+        <div className="sequencer-profile-card">
+          <div className="sequencer-profile-copy">
+            <p className="panel-title sequencer-profile-title">Sequencer</p>
+            <p className="body-copy">
+              Verify DAVINCI processes to store your census and voting status on
+              your wallet profile.
+            </p>
+          </div>
+          <div className="sequencer-profile-actions">
+            {sequencerSnapshot ? (
+              <div className="sequencer-profile-summary">
+                <span className="sequencer-profile-summary-label">Stored processes</span>
+                <span className="sequencer-profile-summary-value">
+                  {sequencerProcessCount}
+                </span>
+                <span className="sequencer-profile-summary-meta">
+                  {sequencerSnapshot.votesCasted} votes casted ·{' '}
+                  {sequencerSnapshot.numOfProcessAsParticipant} in census
+                </span>
+              </div>
+            ) : null}
+            <button
+              className="minimal-button sequencer-profile-button"
+              disabled={!isSignedIn || isSessionActionDisabled || providerAction !== null}
+              onClick={onNavigateToSequencer}
+              type="button"
+            >
+              Verify process
+            </button>
+          </div>
         </div>
 
         {twitterProof ? (

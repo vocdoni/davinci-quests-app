@@ -4,10 +4,22 @@ import {
   Developer,
   Hourglass,
   Lock,
+  ArrowRight,
   Trophy,
 } from 'iconoir-react'
-import type { QuestRole } from '../lib/quests'
+import * as Iconoir from 'iconoir-react'
+import type { ComponentType, SVGProps } from 'react'
+import type { QuestRequirementSource, QuestRole } from '../lib/quests'
+import { getQuestRequirementSource } from '../lib/quests'
 import type { QuestProgressSummary, ResolvedQuest } from './types'
+
+type QuestRouteAction = {
+  icon?: string | null
+  url: string
+}
+
+type QuestIconComponent = ComponentType<SVGProps<SVGSVGElement>>
+const ICONOIR_COMPONENTS = Iconoir as unknown as Record<string, QuestIconComponent>
 
 type QuestsPageProps = {
   isBuilderRoleUnlocked: boolean
@@ -20,8 +32,10 @@ type QuestsPageProps = {
   questsAreError: boolean
   resolvedQuests: ResolvedQuest[]
   selectedQuestRole: QuestRole
+  sourceConnections: Record<QuestRequirementSource, boolean>
   totalEarnedQuestPoints: number
   onNavigateToProfile: () => void
+  onNavigateToPath: (path: string) => void
   onSelectQuestRole: (role: QuestRole) => void
 }
 
@@ -70,6 +84,37 @@ function getQuestStatusBadge({
   }
 }
 
+function isInternalRoute(url: string) {
+  return url.startsWith('/') && !url.startsWith('//')
+}
+
+function runQuestRouteAction(
+  action: QuestRouteAction | null | undefined,
+  onNavigateToPath: (path: string) => void,
+) {
+  if (!action) {
+    return
+  }
+
+  if (isInternalRoute(action.url)) {
+    onNavigateToPath(action.url)
+    return
+  }
+
+  window.open(action.url, '_blank', 'noopener,noreferrer')
+}
+
+function resolveQuestIcon(
+  iconName: string | null | undefined,
+  fallbackName: string,
+) {
+  if (iconName && ICONOIR_COMPONENTS[iconName]) {
+    return ICONOIR_COMPONENTS[iconName]
+  }
+
+  return ICONOIR_COMPONENTS[fallbackName] ?? ArrowRight
+}
+
 export function QuestsPage({
   isBuilderRoleUnlocked,
   isGithubConnected,
@@ -81,8 +126,10 @@ export function QuestsPage({
   questsAreError,
   resolvedQuests,
   selectedQuestRole,
+  sourceConnections,
   totalEarnedQuestPoints,
   onNavigateToProfile,
+  onNavigateToPath,
   onSelectQuestRole,
 }: QuestsPageProps) {
   return (
@@ -126,7 +173,7 @@ export function QuestsPage({
               >
                 <div className="quest-role-card-copy">
                   <div className="quest-role-card-header">
-                    <h2 className="quest-role-card-title">{QUEST_ROLE_LABELS[role]}</h2>
+                  <h2 className="quest-role-card-title">{QUEST_ROLE_LABELS[role]}</h2>
                     {isSelected ? (
                       <span className="quest-role-selected-badge">Selected</span>
                     ) : null}
@@ -135,6 +182,10 @@ export function QuestsPage({
                   <p className="quest-role-card-description">
                     {getQuestRoleDescription(role)}
                   </p>
+
+                  {!isSelected ? (
+                    <p className="quest-role-note">Click change to this track</p>
+                  ) : null}
 
                   {role === 'builders' && !isBuilderRoleUnlocked ? (
                     <div className="quest-role-lockout">
@@ -172,19 +223,19 @@ export function QuestsPage({
           <div className="quest-overview-copy">
             <span className="quest-overview-label">Supporters</span>
             <span className="quest-overview-value">
-              {questProgressByRole.supporters.completedCount}/
-              {questProgressByRole.supporters.totalCount} completed
+              {questProgressByRole.supporters.completed}/
+              {questProgressByRole.supporters.total} completed
             </span>
             <span className="quest-overview-meta">
-              {questProgressByRole.supporters.earnedPoints} pts earned
+              {questProgressByRole.supporters.points} pts earned
             </span>
             <div className="quest-overview-mobile-stack" aria-hidden="true">
               <span className="quest-overview-mobile-value">
-                {questProgressByRole.supporters.completedCount}/
-                {questProgressByRole.supporters.totalCount}
+                {questProgressByRole.supporters.completed}/
+                {questProgressByRole.supporters.total}
               </span>
               <span className="quest-overview-mobile-meta">
-                {questProgressByRole.supporters.earnedPoints} pts
+                {questProgressByRole.supporters.points} pts
               </span>
             </div>
           </div>
@@ -198,19 +249,19 @@ export function QuestsPage({
             <div className="quest-overview-copy">
               <span className="quest-overview-label">Builders</span>
               <span className="quest-overview-value">
-                {questProgressByRole.builders.completedCount}/
-                {questProgressByRole.builders.totalCount} completed
+                {questProgressByRole.builders.completed}/
+                {questProgressByRole.builders.total} completed
               </span>
               <span className="quest-overview-meta">
-                {questProgressByRole.builders.earnedPoints} pts earned
+                {questProgressByRole.builders.points} pts earned
               </span>
               <div className="quest-overview-mobile-stack" aria-hidden="true">
                 <span className="quest-overview-mobile-value">
-                  {questProgressByRole.builders.completedCount}/
-                  {questProgressByRole.builders.totalCount}
+                  {questProgressByRole.builders.completed}/
+                  {questProgressByRole.builders.total}
                 </span>
                 <span className="quest-overview-mobile-meta">
-                  {questProgressByRole.builders.earnedPoints} pts
+                  {questProgressByRole.builders.points} pts
                 </span>
               </div>
             </div>
@@ -272,6 +323,21 @@ export function QuestsPage({
                 isCompleted: quest.isCompleted,
                 isLocked: isSelectedQuestRoleLocked,
               })
+              const questRequirementSource = getQuestRequirementSource(quest.achievement)
+              const isQuestSourceConnected =
+                questRequirementSource === null
+                  ? true
+                  : sourceConnections[questRequirementSource]
+              const shouldShowQuestConnectionCta =
+                !quest.isCompleted && Boolean(quest.connectButton)
+              const CallToActionIcon = resolveQuestIcon(
+                quest.callToAction?.icon,
+                'ArrowRight',
+              )
+              const ConnectButtonIcon = resolveQuestIcon(
+                quest.connectButton?.icon,
+                isInternalRoute(quest.connectButton?.url ?? '') ? 'ArrowRight' : 'UserPlus',
+              )
 
               return (
                 <article
@@ -280,21 +346,105 @@ export function QuestsPage({
                 >
                   <div className="quest-card-meta">
                     <span className="quest-order">Quest {quest.id}</span>
-                    <span className="quest-points-chip">{quest.points} pts</span>
+                    <div className="quest-card-meta-actions">
+                      <span className={`quest-status-badge ${statusBadge.statusClassName}`}>
+                        <statusBadge.icon
+                          aria-hidden={true}
+                          className="quest-status-icon"
+                        />
+                        {statusBadge.label}
+                      </span>
+                      <span className="quest-points-chip">{quest.points} pts</span>
+                    </div>
                   </div>
 
                   <h3 className="quest-card-title">{quest.title}</h3>
                   <p className="quest-card-description">{quest.description}</p>
+                  {quest.progressHint ? (
+                    <div className="quest-card-progress-shell">
+                      <p className="quest-card-progress">
+                        {quest.progressHint.remaining} more to complete
+                      </p>
+                      <div className="quest-card-progress-row">
+                        <div
+                          aria-hidden="true"
+                          className="quest-card-progress-bar"
+                        >
+                          <span
+                            className="quest-card-progress-bar-fill"
+                            style={{
+                              width: `${Math.max(
+                                8,
+                                Math.min(
+                                  100,
+                                  (quest.progressHint.current /
+                                    quest.progressHint.required) *
+                                    100,
+                                ),
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                        <span className="quest-card-progress-required">
+                          {quest.progressHint.required} required
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
 
-                  <div className="quest-card-footer">
-                    <span className={`quest-status-badge ${statusBadge.statusClassName}`}>
-                      <statusBadge.icon
-                        aria-hidden={true}
-                        className="quest-status-icon"
-                      />
-                      {statusBadge.label}
-                    </span>
-                  </div>
+                  {!quest.isCompleted &&
+                  (quest.callToAction || shouldShowQuestConnectionCta) ? (
+                    <div className="quest-card-cta">
+                      {shouldShowQuestConnectionCta ? (
+                        <button
+                          className="quest-card-cta-connect-button minimal-button"
+                          onClick={() => {
+                            runQuestRouteAction(
+                              quest.connectButton,
+                              onNavigateToPath,
+                            )
+                          }}
+                          type="button"
+                        >
+                          <ConnectButtonIcon
+                            aria-hidden={true}
+                            className="quest-card-cta-icon"
+                          />
+                          {quest.connectButton?.title}
+                        </button>
+                      ) : null}
+                      {quest.callToAction ? (
+                        <div className="quest-card-cta-main">
+                          <button
+                            className="quest-card-cta-button"
+                            disabled={!isQuestSourceConnected}
+                            onClick={() => {
+                              const url = quest.callToAction?.url ?? ''
+
+                              if (isInternalRoute(url)) {
+                                onNavigateToPath(url)
+                                return
+                              }
+
+                              window.open(url, '_blank', 'noopener,noreferrer')
+                            }}
+                            type="button"
+                          >
+                            <CallToActionIcon
+                              aria-hidden={true}
+                              className="quest-card-cta-icon"
+                            />
+                            {quest.callToAction.title}
+                          </button>
+                          {quest.callToAction.help ? (
+                            <p className="quest-card-cta-help">
+                              {quest.callToAction.help}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </article>
               )
             })}

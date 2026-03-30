@@ -38,13 +38,122 @@ function normalizeQuest(role, quest, index) {
     throw new Error(`Quest ${quest.id} in ${role} must define an achievement expression.`)
   }
 
-  return {
+  let callToAction = null
+  let connectButton = null
+
+  if (quest.callToAction !== undefined) {
+    if (
+      !quest.callToAction ||
+      typeof quest.callToAction !== 'object' ||
+      Array.isArray(quest.callToAction)
+    ) {
+      throw new Error(`Quest ${quest.id} in ${role} must define a valid callToAction object.`)
+    }
+
+    if (
+      typeof quest.callToAction.title !== 'string' ||
+      quest.callToAction.title.trim().length === 0
+    ) {
+      throw new Error(`Quest ${quest.id} in ${role} callToAction must have a title.`)
+    }
+
+    if (
+      typeof quest.callToAction.url !== 'string' ||
+      quest.callToAction.url.trim().length === 0
+    ) {
+      throw new Error(`Quest ${quest.id} in ${role} callToAction must have a url.`)
+    }
+
+    try {
+      const normalizedUrl = quest.callToAction.url.trim()
+
+      const normalizedCallToAction = {
+        help:
+          typeof quest.callToAction.help === 'string' && quest.callToAction.help.trim().length > 0
+            ? quest.callToAction.help.trim()
+            : null,
+        title: quest.callToAction.title.trim(),
+        url: normalizedUrl.startsWith('/')
+          ? normalizedUrl
+          : new URL(normalizedUrl).toString(),
+      }
+
+      if (
+        typeof quest.callToAction.icon === 'string' &&
+        quest.callToAction.icon.trim().length > 0
+      ) {
+        normalizedCallToAction.icon = quest.callToAction.icon.trim()
+      }
+
+      callToAction = normalizedCallToAction
+    } catch {
+      throw new Error(`Quest ${quest.id} in ${role} callToAction must have a valid url.`)
+    }
+  }
+
+  if (quest.connectButton !== undefined) {
+    if (
+      !quest.connectButton ||
+      typeof quest.connectButton !== 'object' ||
+      Array.isArray(quest.connectButton)
+    ) {
+      throw new Error(`Quest ${quest.id} in ${role} must define a valid connectButton object.`)
+    }
+
+    if (
+      typeof quest.connectButton.title !== 'string' ||
+      quest.connectButton.title.trim().length === 0
+    ) {
+      throw new Error(`Quest ${quest.id} in ${role} connectButton must have a title.`)
+    }
+
+    if (
+      typeof quest.connectButton.url !== 'string' ||
+      quest.connectButton.url.trim().length === 0
+    ) {
+      throw new Error(`Quest ${quest.id} in ${role} connectButton must have a url.`)
+    }
+
+    try {
+      const normalizedUrl = quest.connectButton.url.trim()
+
+      const normalizedConnectButton = {
+        title: quest.connectButton.title.trim(),
+        url: normalizedUrl.startsWith('/')
+          ? normalizedUrl
+          : new URL(normalizedUrl).toString(),
+      }
+
+      if (
+        typeof quest.connectButton.icon === 'string' &&
+        quest.connectButton.icon.trim().length > 0
+      ) {
+        normalizedConnectButton.icon = quest.connectButton.icon.trim()
+      }
+
+      connectButton = normalizedConnectButton
+    } catch {
+      throw new Error(`Quest ${quest.id} in ${role} connectButton must have a valid url.`)
+    }
+  }
+
+  const normalizedQuest = {
     achievement: quest.achievement.trim(),
     description: quest.description.trim(),
     id: quest.id,
     points: quest.points,
     title: quest.title.trim(),
   }
+
+  if (callToAction) {
+    normalizedQuest.callToAction = callToAction
+  }
+
+  if (connectButton) {
+    normalizedQuest.connectButton = connectButton
+  }
+
+  return normalizedQuest
 }
 
 function normalizeQuestList(role, value) {
@@ -79,7 +188,7 @@ export function normalizeQuestCatalog(value) {
   }
 }
 
-function resolveQuestCatalogPath(filePath) {
+function resolveQuestCatalogFilePath(filePath) {
   if (!filePath) {
     return DEFAULT_QUESTS_FILE_PATH
   }
@@ -97,8 +206,12 @@ function resolveQuestCatalogPath(filePath) {
   return resolvedPath
 }
 
+export function resolveQuestCatalogPath(filePath = null) {
+  return resolveQuestCatalogFilePath(filePath)
+}
+
 export function loadQuestCatalog(filePath = null) {
-  const fileContents = readFileSync(resolveQuestCatalogPath(filePath), 'utf8')
+  const fileContents = readFileSync(resolveQuestCatalogFilePath(filePath), 'utf8')
   const parsed = JSON.parse(fileContents)
 
   return normalizeQuestCatalog(parsed)

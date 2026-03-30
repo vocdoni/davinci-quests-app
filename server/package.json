@@ -10,6 +10,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@vocdoni/davinci-contracts": "^0.0.39",
+    "@vocdoni/davinci-sdk": "^0.2.2",
+    "ethers": "^6.16.0",
     "mongodb": "^6.19.0",
     "viem": "^2.47.5"
   },

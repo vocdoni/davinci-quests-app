@@ -44,10 +44,16 @@ async function readJson(response) {
   }
 }
 
-async function fetchDiscordResource(path, accessToken, message, fetchImpl = fetch) {
+async function fetchDiscordResource(
+  path,
+  accessToken,
+  message,
+  fetchImpl = fetch,
+  authorizationType = 'Bearer',
+) {
   const response = await fetchImpl(`${DISCORD_API_BASE_URL}${path}`, {
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `${authorizationType} ${accessToken}`,
     },
   })
 
@@ -78,9 +84,9 @@ async function requestDiscordToken(body, clientId, clientSecret, fetchImpl = fet
   if (!response.ok) {
     const detail =
       tokenBody &&
-      typeof tokenBody === 'object' &&
-      'error_description' in tokenBody &&
-      typeof tokenBody.error_description === 'string'
+        typeof tokenBody === 'object' &&
+        'error_description' in tokenBody &&
+        typeof tokenBody.error_description === 'string'
         ? tokenBody.error_description
         : 'Discord token exchange failed.'
 
@@ -148,7 +154,9 @@ export async function refreshDiscordAccessToken(
 export async function fetchDiscordUserStats(
   {
     accessToken,
+    botToken = null,
     guildId,
+    channelId,
   },
   fetchImpl = fetch,
 ) {
@@ -178,28 +186,89 @@ export async function fetchDiscordUserStats(
   }
 
   const typedUser = user
+  const userId =
+    typedUser &&
+      typeof typedUser === 'object' &&
+      'id' in typedUser &&
+      typeof typedUser.id === 'string'
+      ? typedUser.id
+      : null
+  let messagesInTargetChannel = null
+
+  if (userId && typeof botToken === 'string' && botToken.trim().length > 0) {
+    messagesInTargetChannel = 0
+    let beforeMessageId = null
+
+    while (true) {
+      const queryParams = new URLSearchParams({
+        limit: '100',
+      })
+
+      if (beforeMessageId) {
+        queryParams.set('before', beforeMessageId)
+      }
+
+      const messages = await fetchDiscordResource(
+        `/channels/${channelId}/messages?${queryParams.toString()}`,
+        botToken,
+        'Failed to load Discord channel messages.',
+        fetchImpl,
+        'Bot',
+      )
+
+      if (!Array.isArray(messages)) {
+        throw new Error('Discord channel messages response is malformed.')
+      }
+
+      for (const message of messages) {
+        if (
+          message &&
+          typeof message === 'object' &&
+          'author' in message &&
+          message.author &&
+          typeof message.author === 'object' &&
+          'id' in message.author &&
+          message.author.id === userId
+        ) {
+          messagesInTargetChannel += 1
+        }
+      }
+
+      if (messages.length < 100) {
+        break
+      }
+
+      const lastMessage = messages[messages.length - 1]
+      beforeMessageId =
+        lastMessage &&
+          typeof lastMessage === 'object' &&
+          'id' in lastMessage &&
+          typeof lastMessage.id === 'string'
+          ? lastMessage.id
+          : null
+
+      if (!beforeMessageId) {
+        break
+      }
+    }
+  }
 
   return {
     displayName:
       typedUser &&
-      typeof typedUser === 'object' &&
-      'global_name' in typedUser &&
-      (typedUser.global_name === null || typeof typedUser.global_name === 'string')
+        typeof typedUser === 'object' &&
+        'global_name' in typedUser &&
+        (typedUser.global_name === null || typeof typedUser.global_name === 'string')
         ? typedUser.global_name
         : null,
     isInTargetServer,
-    userId:
-      typedUser &&
-      typeof typedUser === 'object' &&
-      'id' in typedUser &&
-      typeof typedUser.id === 'string'
-        ? typedUser.id
-        : null,
+    messagesInTargetChannel,
+    userId,
     username:
       typedUser &&
-      typeof typedUser === 'object' &&
-      'username' in typedUser &&
-      typeof typedUser.username === 'string'
+        typeof typedUser === 'object' &&
+        'username' in typedUser &&
+        typeof typedUser.username === 'string'
         ? typedUser.username
         : null,
   }

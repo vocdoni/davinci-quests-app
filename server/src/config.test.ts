@@ -8,7 +8,9 @@ function createEnv(overrides = {}) {
     APP_SESSION_SECRET: 'super-secret',
     DISCORD_CLIENT_ID: '123456789012345678',
     DISCORD_CLIENT_SECRET: 'discord-client-secret',
+    DISCORD_BOT_TOKEN: 'discord-bot-token',
     DISCORD_GUILD_ID: '987654321098765432',
+    DISCORD_TARGET_CHANNEL_ID: '555555555555555555',
     DISCORD_REDIRECT_URI: 'https://api.example.org/api/connections/discord/callback',
     ENS_RPC_URL: 'https://ens.example.org',
     FRONTEND_APP_URL: 'https://app.example.org',
@@ -22,6 +24,7 @@ function createEnv(overrides = {}) {
     ONCHAIN_PROCESS_REGISTRY_ADDRESS: '0x0000000000000000000000000000000000000001',
     ONCHAIN_PROCESS_REGISTRY_START_BLOCK: '12345',
     ONCHAIN_RPC_URL: 'https://rpc.example.org',
+    SEQUENCER_API_URL: 'https://sequencer.example.org',
     PROVIDER_TOKEN_ENCRYPTION_SECRET: 'provider-secret',
     TELEGRAM_APP_JWT_SECRET: 'telegram-secret',
     TELEGRAM_BOT_TOKEN: '123456:telegram-bot-token',
@@ -42,7 +45,9 @@ describe('parseServerConfig', () => {
       discord: {
         clientId: '123456789012345678',
         clientSecret: 'discord-client-secret',
+        botToken: 'discord-bot-token',
         guildId: '987654321098765432',
+        targetChannelId: '555555555555555555',
         redirectUri: 'https://api.example.org/api/connections/discord/callback',
       },
       ens: {
@@ -77,6 +82,9 @@ describe('parseServerConfig', () => {
         rpcUrl: 'https://rpc.example.org/',
         startBlock: 12345n,
       },
+      sequencer: {
+        apiUrl: 'https://sequencer.example.org/',
+      },
       questCatalogPath: null,
       providerTokenEncryptionSecret: 'provider-secret',
       telegram: {
@@ -92,8 +100,18 @@ describe('parseServerConfig', () => {
 
   it('reports all missing backend variables together', () => {
     expect(() => parseServerConfig({})).toThrow(
-      'Missing required environment variables: APP_SESSION_SECRET, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI, ENS_RPC_URL, FRONTEND_APP_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI, GITHUB_TARGET_ORGANIZATION, GITHUB_TARGET_REPOSITORIES, MONGODB_DB_NAME, MONGODB_URI, ONCHAIN_PROCESS_REGISTRY_ADDRESS, ONCHAIN_PROCESS_REGISTRY_START_BLOCK, ONCHAIN_RPC_URL, PROVIDER_TOKEN_ENCRYPTION_SECRET, TELEGRAM_APP_JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_USERNAME, TELEGRAM_CLIENT_ID, TELEGRAM_CLIENT_SECRET, TELEGRAM_REDIRECT_URI',
+      'Missing required environment variables: APP_SESSION_SECRET, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI, DISCORD_TARGET_CHANNEL_ID, ENS_RPC_URL, FRONTEND_APP_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI, GITHUB_TARGET_ORGANIZATION, GITHUB_TARGET_REPOSITORIES, MONGODB_DB_NAME, MONGODB_URI, ONCHAIN_PROCESS_REGISTRY_ADDRESS, ONCHAIN_PROCESS_REGISTRY_START_BLOCK, ONCHAIN_RPC_URL, PROVIDER_TOKEN_ENCRYPTION_SECRET, SEQUENCER_API_URL, TELEGRAM_APP_JWT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_USERNAME, TELEGRAM_CLIENT_ID, TELEGRAM_CLIENT_SECRET, TELEGRAM_REDIRECT_URI',
     )
+  })
+
+  it('allows the discord bot token to be omitted', () => {
+    const config = parseServerConfig(
+      createEnv({
+        DISCORD_BOT_TOKEN: undefined,
+      }),
+    )
+
+    expect(config.discord.botToken).toBeNull()
   })
 
   it('accepts an optional quest catalog path override', () => {

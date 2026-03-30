@@ -4,24 +4,180 @@
       "id": 1,
       "title": "Star the Davinci Node repo on GitHub",
       "description": "Enjoying Davinci Node? Star the repository on GitHub to support the project and help more developers discover it.",
-      "points": 320,
-      "achievement": "github.targetRepositories[0].isStarred == true"
+      "points": 25,
+      "achievement": "github.targetRepositories[0].isStarred == true",
+      "callToAction": {
+        "title": "Star the Node repo",
+        "help": "Click to visit the Davinci Node GitHub repository",
+        "url": "https://github.com/vocdoni/davinci-node"
+      }
     },
     {
       "id": 2,
       "title": "Star the Davinci SDK repo on GitHub",
       "description": "Want to build with Davinci? Explore our SDK, star the repository on GitHub, and start creating something great on the protocol.",
-      "points": 420,
-      "achievement": "github.targetRepositories[1].isStarred == true"
+      "points": 25,
+      "achievement": "github.targetRepositories[1].isStarred == true",
+      "callToAction": {
+        "title": "Star the SDK repo",
+        "help": "Click to visit the Davinci SDK GitHub repository",
+        "url": "https://github.com/vocdoni/davinci-sdk"
+      }
     }
   ],
   "supporters": [
     {
       "id": 1,
-      "title": "Join the Vocdoni Discord server",
-      "description": "Join the Vocdoni Discord server to connect with the community, stay up to date, and get support when you need it.",
+      "title": "Join DAVINCI Telegram",
+      "description": "The fastest channel for protocol updates, governance discussions, and community alpha. Join the group to stay in the loop.",
+      "points": 20,
+      "achievement": "telegram.isInTargetChannel == true",
+      "callToAction": {
+        "icon": "Community",
+        "title": "Join DAVINCI Telegram",
+        "help": "Click to join the DAVINCI Telegram",
+        "url": "https://t.me/vocdoni_community"
+      },
+      "connectButton": {
+        "icon": "Telegram",
+        "title": "Connect Telegram",
+        "help": "Connect your Telegram account to verify your membership in the DAVINCI Telegram group",
+        "url": "/profile"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Join DAVINCI Discord",
+      "description": "Join the DAVINCI Discord server to connect with the community, stay up to date, and get support when you need it.",
+      "points": 20,
+      "achievement": "discord.isInTargetServer == true",
+      "callToAction": {
+        "icon": "Community",
+        "title": "Join DAVINCI Discord",
+        "help": "Click to join the DAVINCI Discord server",
+        "url": "https://chat.vocdoni.io/"
+      },
+      "connectButton": {
+        "icon": "Discord",
+        "title": "Connect Discord",
+        "help": "Connect your Discord account to verify your membership in the DAVINCI Discord server",
+        "url": "/profile"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Complete DAVINCI Quest Profile",
+      "description": "Create your identity on the DAVINCI Quests platform. Your profile tracks points, completed quests, and role progress. It's how the protocol knows you.",
+      "points": 25,
+      "achievement": "onchain.isConnected == true"
+    },
+    {
+      "id": 6,
+      "title": "Cast 5 Votes",
+      "description": "Participate in at least 5 processes on AskTheWorld, the mini app built on top of the DAVINCI protocol and Self.xyz to create onchain voting process, to complete this quest.",
+      "points": 60,
+      "achievement": "sequencer.votesCasted >= 5",
+      "callToAction": {
+        "icon": "BadgeCheck",
+        "title": "Verify a vote",
+        "help": "Click analyse a process on the AskTheWorld to verify your votes",
+        "url": "/profile/sequencer"
+      },
+      "connectButton": {
+        "icon": "Compass",
+        "title": "Explore AskTheWorld processes",
+        "url": "https://asktheworld.davinci.ninja/explore"
+      }
+    },
+    {
+      "id": 7,
+      "title": "Cast 20 Votes",
+      "description": "Participate in at least 20 processes on AskTheWorld, the mini app built on top of the DAVINCI protocol and Self.xyz to create onchain voting process, to complete this quest.",
+      "points": 150,
+      "achievement": "sequencer.votesCasted >= 20",
+      "callToAction": {
+        "icon": "BadgeCheck",
+        "title": "Verify a vote",
+        "help": "Click analyse a process on the AskTheWorld to verify your votes",
+        "url": "/profile/sequencer"
+      },
+      "connectButton": {
+        "icon": "Compass",
+        "title": "Explore AskTheWorld processes",
+        "url": "https://asktheworld.davinci.ninja/explore"
+      }
+    },
+    {
+      "id": 9,
+      "title": "Create 3 Processes on AskTheWorld mini app",
+      "description": "AskTheWorld is a mini app built on top of the DAVINCI protocol that allows anyone to create and run on-chain Self.xyz identity based processes. Create 3 Processes to complete this quest.",
       "points": 100,
-      "achievement": "discord.isInTargetServer == true"
+      "achievement": "onchain.numberOfProcesses >= 3",
+      "callToAction": {
+        "icon": "KeyframesPlus",
+        "title": "Create a Process",
+        "help": "Click to create a process on the AskTheWorld",
+        "url": "https://asktheworld.davinci.ninja/create"
+      }
+    },
+    {
+      "id": 10,
+      "title": "Create 10 Processes on AskTheWorld mini app",
+      "description": "AskTheWorld is a mini app built on top of the DAVINCI protocol that allows anyone to create and run on-chain Self.xyz identity based processes. Create 10 Processes to complete this quest.",
+      "points": 200,
+      "achievement": "onchain.numberOfProcesses >= 10",
+      "callToAction": {
+        "icon": "Plus",
+        "title": "Create a Process",
+        "help": "Click to create a Process on the AskTheWorld",
+        "url": "https://asktheworld.davinci.ninja/create"
+      }
+    },
+    {
+      "id": 11,
+      "title": "Create 20 Processes on AskTheWorld mini app",
+      "description": "AskTheWorld is a mini app built on top of the DAVINCI protocol that allows anyone to create and run on-chain Self.xyz identity based processes. Create 20 Processes to complete this quest.",
+      "points": 350,
+      "achievement": "onchain.numberOfProcesses >= 20",
+      "callToAction": {
+        "icon": "Plus",
+        "title": "Create a Process",
+        "help": "Click to create a Process on the AskTheWorld",
+        "url": "https://asktheworld.davinci.ninja/create"
+      }
+    },
+    {
+      "id": 12,
+      "title": "Get 15 Users to Vote in Your Process",
+      "description": "AskTheWorld is a mini app built on top of the DAVINCI protocol that allows anyone to create and run on-chain Self.xyz identity based processes. Get 15 users to vote in all your Process to complete this quest.",
+      "points": 75,
+      "achievement": "onchain.totalVotes >= 15",
+      "callToAction": {
+        "icon": "Plus",
+        "title": "Create a Process",
+        "help": "Click to create a Process on the AskTheWorld",
+        "url": "https://asktheworld.davinci.ninja/create"
+      }
+    },
+    {
+      "id": 13,
+      "title": "Get 30 Users to Vote in Your Process",
+      "description": "AskTheWorld is a mini app built on top of the DAVINCI protocol that allows anyone to create and run on-chain Self.xyz identity based processes. Get 30 users to vote in all your Process to complete this quest.",
+      "points": 125,
+      "achievement": "onchain.totalVotes >= 30",
+      "callToAction": {
+        "icon": "Plus",
+        "title": "Create a Process",
+        "help": "Click to create a Process on the AskTheWorld",
+        "url": "https://asktheworld.davinci.ninja/create"
+      }
+    },
+    {
+      "id": 14,
+      "title": "Complete Sprint Campaign",
+      "description": "Complete all quests in Supporters track to finish the sprint campaign and earn this badge of honor. Show off your support for the project and your dedication to the community with this exclusive achievement.",
+      "points": 100,
+      "achievement": "quests.supporters.completed == quests.supporters.total - 1"
     }
   ]
 }

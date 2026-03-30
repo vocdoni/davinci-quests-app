@@ -7,6 +7,7 @@ import type { LeaderboardRow } from './hooks/useLeaderboard'
 import { useLeaderboard } from './hooks/useLeaderboard'
 import { useQuests } from './hooks/useQuests'
 import type { AppProfile } from './hooks/useAppSession'
+import type { SequencerVerification } from './hooks/useAppSession'
 import { useAppSession } from './hooks/useAppSession'
 import { useWalletConnection } from './hooks/useWalletConnection'
 import type { QuestCatalog } from './lib/quests'
@@ -80,18 +81,51 @@ function createWalletConnection(
       name: 'Polygon',
     },
     ...overrides,
-  } as unknown as WalletConnectionState
+    } as unknown as WalletConnectionState
+}
+
+function createSequencerVerification(
+  processId = '0x1234',
+): { sequencer: SequencerVerification } {
+  return {
+    sequencer: {
+      addressWeight: '1',
+      error: null,
+      hasVoted: false,
+      isConnected: true,
+      isInCensus: true,
+      lastVerifiedAt: '2026-03-30T00:00:00.000Z',
+      numOfProcessAsParticipant: 1,
+      processId,
+      processes: [
+        {
+          addressWeight: '1',
+          error: null,
+          hasVoted: false,
+          isInCensus: true,
+          lastVerifiedAt: '2026-03-30T00:00:00.000Z',
+          processId,
+          status: 'verified',
+        },
+      ],
+      status: 'verified',
+      votesCasted: 0,
+    },
+  }
 }
 
 function createProfile(
-  overrides: Partial<Omit<AppProfile, 'identities' | 'onchain' | 'wallet'>> & {
+  overrides: Partial<
+    Omit<AppProfile, 'identities' | 'onchain' | 'sequencer' | 'score' | 'stats' | 'wallet'>
+  > & {
     identities?: Partial<AppProfile['identities']>
-    onchain?: Partial<AppProfile['onchain']>
+    onchain?: Partial<NonNullable<AppProfile['onchain']>>
+    sequencer?: Partial<NonNullable<AppProfile['sequencer']>>
     score?: Partial<AppProfile['score']>
     wallet?: Partial<AppProfile['wallet']>
   } = {},
 ): AppProfile {
-  const baseProfile: AppProfile = {
+  const baseProfile = {
     identities: {
       discord: {
         connected: false,
@@ -151,8 +185,22 @@ function createProfile(
     },
     onchain: {
       error: null,
+      isConnected: false,
       numberOfProcesses: 0,
       totalVotes: '0',
+    },
+    sequencer: {
+      addressWeight: null,
+      error: null,
+      hasVoted: null,
+      isConnected: false,
+      isInCensus: null,
+      lastVerifiedAt: null,
+      processId: null,
+      processes: [],
+      numOfProcessAsParticipant: 0,
+      status: 'unverified',
+      votesCasted: 0,
     },
     score: {
       builderCompletedCount: 0,
@@ -168,7 +216,7 @@ function createProfile(
       address: '0x123400000000000000000000000000000000abcd',
       ensName: null,
     },
-  }
+  } satisfies Omit<AppProfile, 'stats'>
 
   const mergedProfile = {
     ...baseProfile,
@@ -181,11 +229,18 @@ function createProfile(
       ...baseProfile.onchain,
       ...overrides.onchain,
     },
+    sequencer: {
+      ...baseProfile.sequencer,
+      ...overrides.sequencer,
+    },
     wallet: {
       ...baseProfile.wallet,
       ...overrides.wallet,
     },
   }
+  const sequencerProcesses = Array.isArray(mergedProfile.sequencer.processes)
+    ? mergedProfile.sequencer.processes
+    : []
 
   const inferredSupporterCompletedQuestIds =
     mergedProfile.identities.discord.stats.isInTargetServer ? [1] : []
@@ -197,20 +252,74 @@ function createProfile(
     (inferredBuilderCompletedQuestIds.includes(1) ? 320 : 0) +
     (inferredBuilderCompletedQuestIds.includes(2) ? 420 : 0)
   const inferredSupportersPoints = inferredSupporterCompletedQuestIds.includes(1) ? 100 : 0
+  const score = {
+    ...baseProfile.score,
+    builderCompletedCount: inferredBuilderCompletedQuestIds.length,
+    builderCompletedQuestIds: inferredBuilderCompletedQuestIds,
+    buildersPoints: inferredBuildersPoints,
+    supporterCompletedCount: inferredSupporterCompletedQuestIds.length,
+    supporterCompletedQuestIds: inferredSupporterCompletedQuestIds,
+    supportersPoints: inferredSupportersPoints,
+    totalPoints: inferredBuildersPoints + inferredSupportersPoints,
+    ...overrides.score,
+  }
+  const stats = {
+    discord: {
+      isInTargetServer: mergedProfile.identities.discord.stats.isInTargetServer,
+      messagesInTargetChannel:
+        (
+          mergedProfile.identities.discord.stats as {
+            isInTargetServer: boolean | null
+            messagesInTargetChannel?: number | null
+          }
+        ).messagesInTargetChannel ?? null,
+    },
+    github: {
+      isFollowingTargetOrganization:
+        mergedProfile.identities.github.stats.isFollowingTargetOrganization,
+      isOlderThanOneYear: mergedProfile.identities.github.stats.isOlderThanOneYear,
+      publicNonForkRepositoryCount:
+        mergedProfile.identities.github.stats.publicNonForkRepositoryCount,
+      targetOrganization: mergedProfile.identities.github.stats.targetOrganization,
+      targetRepositories: mergedProfile.identities.github.stats.targetRepositories,
+    },
+    onchain: {
+      address: mergedProfile.wallet.address,
+      error: mergedProfile.onchain?.error ?? null,
+      isConnected: mergedProfile.onchain?.isConnected ?? false,
+      numberOfProcesses: mergedProfile.onchain?.numberOfProcesses ?? 0,
+      totalVotes: mergedProfile.onchain?.totalVotes ?? '0',
+    },
+    quests: {
+      builders: {
+        completed: score.builderCompletedCount,
+        points: score.buildersPoints,
+        total: 2,
+      },
+      supporters: {
+        completed: score.supporterCompletedCount,
+        points: score.supportersPoints,
+        total: 2,
+      },
+    },
+    sequencer: {
+      lastVerifiedAt: mergedProfile.sequencer.lastVerifiedAt,
+      numOfProcessAsParticipant: mergedProfile.sequencer.numOfProcessAsParticipant,
+      processes: sequencerProcesses
+        .map((process) => process.processId)
+        .filter((processId): processId is string => typeof processId === 'string'),
+      votesCasted: mergedProfile.sequencer.votesCasted,
+    },
+    telegram: {
+      isInTargetChannel: mergedProfile.identities.telegram.stats.isInTargetChannel,
+    },
+    twitter: {},
+  }
 
   return {
     ...mergedProfile,
-    score: {
-      ...baseProfile.score,
-      builderCompletedCount: inferredBuilderCompletedQuestIds.length,
-      builderCompletedQuestIds: inferredBuilderCompletedQuestIds,
-      buildersPoints: inferredBuildersPoints,
-      supporterCompletedCount: inferredSupporterCompletedQuestIds.length,
-      supporterCompletedQuestIds: inferredSupporterCompletedQuestIds,
-      supportersPoints: inferredSupportersPoints,
-      totalPoints: inferredBuildersPoints + inferredSupportersPoints,
-      ...overrides.score,
-    },
+    stats,
+    score,
   }
 }
 
@@ -233,6 +342,9 @@ function createSession(overrides: Record<string, unknown> = {}): SessionState {
     sessionWalletAddress: null,
     startProviderConnection: vi.fn(),
     unlinkProvider: vi.fn(async () => undefined),
+    verifySequencerProcess: vi.fn(async (processId: string) =>
+      createSequencerVerification(processId),
+    ),
     verifyTwitterTweet: vi.fn(async () => undefined),
     verifyWallet: vi.fn(async () => undefined),
     ...overrides,
@@ -263,6 +375,15 @@ function createQuestCatalog(
       {
         achievement: 'discord.isInTargetServer == true',
         description: 'Supporter quest description',
+        callToAction: {
+          help: 'Open the Discord invite if you still need to join.',
+          title: 'Join Discord',
+          url: 'https://example.org/discord',
+        },
+        connectButton: {
+          title: 'Connect Discord',
+          url: '/profile',
+        },
         id: 1,
         points: 100,
         title: 'Join the Vocdoni Discord server',
@@ -413,6 +534,15 @@ describe('App', () => {
               username: 'questmaster',
             },
           },
+          score: {
+            builderCompletedCount: 0,
+            builderCompletedQuestIds: [],
+            buildersPoints: 0,
+            supporterCompletedCount: 0,
+            supporterCompletedQuestIds: [],
+            supportersPoints: 0,
+            totalPoints: 0,
+          },
         }),
         sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
       }),
@@ -424,7 +554,7 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', { name: 'Join the Vocdoni Discord server' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('Completed')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Connect Discord' })).toBeInTheDocument()
   })
 
   it('shows the trimmed address in the navbar and routes to the profile page on click', async () => {
@@ -485,7 +615,9 @@ describe('App', () => {
     vi.useRealTimers()
   })
 
-  it('uses quests as the root page and shows supporter quests by default', () => {
+  it('uses quests as the root page and shows supporter quests by default', async () => {
+    const user = userEvent.setup()
+
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({
         address: '0x123400000000000000000000000000000000abcd',
@@ -514,6 +646,11 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', { name: 'Join the Vocdoni Discord server' }),
     ).toBeInTheDocument()
+    expect(screen.getByText('Click change to this track')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Join Discord/ })).toBeDisabled()
+    expect(
+      screen.getByText('Open the Discord invite if you still need to join.'),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'About' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Quests' })).toHaveAttribute('href', '/')
@@ -524,11 +661,232 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Rules' })).toHaveAttribute('href', '/rules')
     expect(screen.getByRole('link', { name: 'FAQ' })).toHaveAttribute('href', '/faq')
     expect(
-      screen.queryByRole('button', { name: 'Connect Discord' }),
-    ).not.toBeInTheDocument()
+      screen.getByRole('button', { name: 'Connect Discord' }),
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Connect GitHub' }),
     ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Connect Discord' }))
+
+    expect(screen.getByRole('heading', { name: 'My profile' })).toBeInTheDocument()
+  })
+
+  it('shows the custom connect button until the quest is completed', async () => {
+    const user = userEvent.setup()
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile({
+          identities: {
+            discord: {
+              connected: true,
+              displayName: 'Quest Master',
+              error: null,
+              stats: {
+                isInTargetServer: true,
+              },
+              status: 'active',
+              userId: '111111111111111111',
+              username: 'questmaster',
+            },
+          },
+          score: {
+            builderCompletedCount: 0,
+            builderCompletedQuestIds: [],
+            buildersPoints: 0,
+            supporterCompletedCount: 0,
+            supporterCompletedQuestIds: [],
+            supportersPoints: 0,
+            totalPoints: 0,
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+    mockedUseQuests.mockReturnValue(
+      createQuestsState({
+        data: createQuestCatalog({
+          supporters: [
+            {
+              achievement: 'quests.supporters.completed >= 1',
+              description: 'Supporter quest description',
+              connectButton: {
+                title: 'Open profile',
+                url: '/profile/sequencer',
+              },
+              id: 1,
+              points: 100,
+              title: 'Join the Vocdoni Discord server',
+            },
+          ],
+        }),
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    expect(screen.getByRole('button', { name: 'Open profile' })).toBeInTheDocument()
+    expect(screen.getByText('1 more to complete')).toBeInTheDocument()
+    expect(screen.getByText('1 required')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Connect Discord' }),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Open profile' }))
+
+    expect(
+      screen.getByRole('heading', { name: 'Verify a process against your wallet.' }),
+    ).toBeInTheDocument()
+  })
+
+  it('routes sequencer quests to the hidden verifier page when the source is not connected', async () => {
+    const user = userEvent.setup()
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile({
+          sequencer: {
+            addressWeight: null,
+            error: null,
+            hasVoted: null,
+            isConnected: false,
+            isInCensus: null,
+            lastVerifiedAt: null,
+            processId: null,
+            processes: [],
+            numOfProcessAsParticipant: 0,
+            status: 'unverified',
+            votesCasted: 0,
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+    mockedUseQuests.mockReturnValue(
+      createQuestsState({
+        data: createQuestCatalog({
+          supporters: [
+            {
+              achievement: 'sequencer.hasVoted == true',
+              connectButton: {
+                title: 'Verify process',
+                url: '/profile/sequencer',
+              },
+              description: 'Supporter quest description',
+              id: 1,
+              points: 100,
+              title: 'Verify a sequencer process',
+            },
+          ],
+        }),
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    expect(screen.getByRole('button', { name: 'Verify process' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Verify process' }))
+
+    expect(
+      screen.getByRole('heading', { name: 'Verify a process against your wallet.' }),
+    ).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/profile/sequencer')
+  })
+
+  it('keeps the connect button visible until the quest is completed', () => {
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile({
+          identities: {
+            discord: {
+              connected: true,
+              displayName: 'Quest Master',
+              error: null,
+              stats: {
+                isInTargetServer: false,
+              },
+              status: 'active',
+              userId: '111111111111111111',
+              username: 'questmaster',
+            },
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    expect(screen.getByRole('button', { name: /Join Discord/ })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Connect Discord' })).toBeInTheDocument()
+  })
+
+  it('hides the quest call to action once the quest is completed', async () => {
+    const user = userEvent.setup()
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile({
+          identities: {
+            discord: {
+              connected: true,
+              displayName: 'Quest Master',
+              error: null,
+              stats: {
+                isInTargetServer: true,
+                messagesInTargetChannel: 3,
+              },
+              status: 'active',
+              userId: '111111',
+              username: 'questmaster',
+            },
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    await user.click(screen.getByRole('tab', { name: /Supporters/ }))
+
+    expect(screen.getByRole('heading', { name: 'Join the Vocdoni Discord server' })).toBeInTheDocument()
+    expect(screen.getByText('Completed')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Join Discord/ })).not.toBeInTheDocument()
   })
 
   it('lets users preview builder quests before GitHub is connected', async () => {
@@ -810,6 +1168,62 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Connect GitHub' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Connect Telegram' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Connect X' })).toBeDisabled()
+  })
+
+  it('shows a sequencer verification shortcut on the profile page', async () => {
+    window.history.replaceState(null, '', '/profile')
+
+    const user = userEvent.setup()
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile({
+          sequencer: {
+            addressWeight: '3',
+            error: null,
+            hasVoted: false,
+            isConnected: true,
+            isInCensus: true,
+            lastVerifiedAt: '2026-03-24T18:00:00.000Z',
+            processId: `0x${'1'.repeat(62)}`,
+            processes: [
+              {
+                addressWeight: '3',
+                error: null,
+                hasVoted: false,
+                isInCensus: true,
+                lastVerifiedAt: '2026-03-24T18:00:00.000Z',
+                processId: `0x${'1'.repeat(62)}`,
+                status: 'verified',
+              },
+            ],
+            numOfProcessAsParticipant: 1,
+            status: 'verified',
+            votesCasted: 0,
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    expect(screen.getByRole('button', { name: 'Verify process' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Verify process' }))
+
+    expect(
+      screen.getByRole('heading', { name: 'Verify a process against your wallet.' }),
+    ).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/profile/sequencer')
   })
 
   it('locks an OAuth connect button into a connecting state after click', async () => {
