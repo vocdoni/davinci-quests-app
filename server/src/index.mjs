@@ -410,14 +410,24 @@ function normalizeStoredOnchainSnapshot(snapshot) {
     return buildDefaultOnchain()
   }
 
+  const normalizedError =
+    typeof snapshot.error === 'string' ? snapshot.error : null
+
   return {
-    error: typeof snapshot.error === 'string' ? snapshot.error : null,
+    error:
+      normalizedError && isIgnorableOnchainMetadataError(normalizedError)
+        ? null
+        : normalizedError,
     numberOfProcesses:
       Number.isInteger(snapshot.numberOfProcesses) && snapshot.numberOfProcesses >= 0
         ? snapshot.numberOfProcesses
         : 0,
     totalVotes: typeof snapshot.totalVotes === 'string' ? snapshot.totalVotes : '0',
   }
+}
+
+function isIgnorableOnchainMetadataError(error) {
+  return getErrorMessage(error).includes('Failed to fetch metadata from URL')
 }
 
 function normalizeStoredScoreSnapshot(snapshot) {
@@ -977,7 +987,11 @@ function resolveTwitterIdentity(link) {
   })
 }
 
-async function resolveOnchainProfile(dependencies, walletAddress) {
+async function resolveOnchainProfile(
+  dependencies,
+  walletAddress,
+  fallbackSnapshot = null,
+) {
   try {
     const stats = await dependencies.onchain.fetchUserStats(walletAddress)
 
@@ -987,6 +1001,13 @@ async function resolveOnchainProfile(dependencies, walletAddress) {
       totalVotes: stats.totalVotes,
     }
   } catch (error) {
+    if (isIgnorableOnchainMetadataError(error)) {
+      return {
+        ...normalizeStoredOnchainSnapshot(fallbackSnapshot),
+        error: null,
+      }
+    }
+
     return {
       ...buildDefaultOnchain(),
       error: getErrorMessage(error),
@@ -1041,7 +1062,11 @@ async function synchronizeWalletProfileSnapshot(
   const storedSequencerSnapshot = getStoredSequencerSnapshot(walletProfile)
   const shouldRefreshSequencer = options.force || storedSequencerSnapshot.processes.length > 0
   const onchain = shouldRefreshOnchain
-    ? await resolveOnchainProfile(dependencies, walletAddress)
+    ? await resolveOnchainProfile(
+        dependencies,
+        walletAddress,
+        walletProfile?.onchainSnapshot ?? null,
+      )
     : normalizeStoredOnchainSnapshot(walletProfile?.onchainSnapshot)
   const ensName = shouldRefreshEns
     ? await resolveEnsProfile(dependencies, walletAddress)

@@ -39,6 +39,8 @@ export const emptySequencerSnapshot = {
   votesCasted: 0,
 }
 
+const ASK_THE_WORLD_PROCESS_ORIGIN = 'asktheworld-miniapp'
+
 function normalizeProcessIdValue(processId) {
   if (typeof processId !== 'string') {
     return null
@@ -62,6 +64,40 @@ function normalizeTimestamp(value) {
   const timestamp = value instanceof Date ? value.getTime() : new Date(value).getTime()
 
   return Number.isFinite(timestamp) ? timestamp : null
+}
+
+function isObjectRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string')
+}
+
+export function isAskTheWorldProcessMetadata(metadata) {
+  if (!isObjectRecord(metadata) || !isObjectRecord(metadata.meta)) {
+    return false
+  }
+
+  const { meta } = metadata
+
+  if (
+    typeof meta.listInExplore !== 'string' ||
+    typeof meta.network !== 'string' ||
+    meta.origin !== ASK_THE_WORLD_PROCESS_ORIGIN ||
+    !isObjectRecord(meta.selfConfig)
+  ) {
+    return false
+  }
+
+  const { selfConfig } = meta
+
+  return (
+    isStringArray(selfConfig.countries) &&
+    typeof selfConfig.country === 'string' &&
+    typeof selfConfig.minAge === 'string' &&
+    typeof selfConfig.scope === 'string'
+  )
 }
 
 function normalizeSequencerProcessSnapshot(snapshot) {
@@ -256,6 +292,26 @@ export function createSequencerDependencies(config) {
 
       if (!normalizedProcessIds.has(normalizedProcessId)) {
         throw new SequencerApiError('Process not found in the sequencer.', 404)
+      }
+
+      const process = await sdk.api.sequencer.getProcess(normalizedProcessId)
+      const metadataUri =
+        typeof process?.metadataURI === 'string' ? process.metadataURI.trim() : ''
+
+      if (!metadataUri) {
+        throw new SequencerApiError(
+          'Process metadata does not match the AskTheWorld miniapp format.',
+          400,
+        )
+      }
+
+      const metadata = await sdk.api.sequencer.getMetadata(metadataUri)
+
+      if (!isAskTheWorldProcessMetadata(metadata)) {
+        throw new SequencerApiError(
+          'Process metadata does not match the AskTheWorld miniapp format.',
+          400,
+        )
       }
 
       const [addressWeight, hasVoted] = await Promise.all([

@@ -9,8 +9,7 @@ import {
 } from 'iconoir-react'
 import * as Iconoir from 'iconoir-react'
 import type { ComponentType, SVGProps } from 'react'
-import type { QuestRequirementSource, QuestRole } from '../lib/quests'
-import { getQuestRequirementSource } from '../lib/quests'
+import type { QuestRole } from '../lib/quests'
 import type { QuestProgressSummary, ResolvedQuest } from './types'
 
 type QuestRouteAction = {
@@ -32,7 +31,6 @@ type QuestsPageProps = {
   questsAreError: boolean
   resolvedQuests: ResolvedQuest[]
   selectedQuestRole: QuestRole
-  sourceConnections: Record<QuestRequirementSource, boolean>
   totalEarnedQuestPoints: number
   onNavigateToProfile: () => void
   onNavigateToPath: (path: string) => void
@@ -46,8 +44,14 @@ const QUEST_ROLE_LABELS: Record<QuestRole, string> = {
 
 function getQuestRoleDescription(role: QuestRole) {
   return role === 'builders'
-    ? 'Builder quests are for contributors who unlocked the role by connecting GitHub.'
-    : 'Supporter quests are open to everyone and help you get started with the community.'
+    ? 'Ship integrations, contribute to the SDK, build miniapps on DAVINCI. Connect GitHub to unlock.'
+    : 'Spread the word, test the protocol, grow the community. No code required, just conviction. Open to everyone.'
+}
+
+function getQuestRoleSummary(role: QuestRole) {
+  return role === 'builders'
+    ? 'The universal voting protocol is open-source and ready for contributors. Star the repos, explore the code, and start shipping.'
+    : 'No code required. Show up, plug in, and help DAVINCI reach the people who need it. Every protocol needs its believers.'
 }
 
 function getQuestCountLabel(count: number) {
@@ -126,7 +130,6 @@ export function QuestsPage({
   questsAreError,
   resolvedQuests,
   selectedQuestRole,
-  sourceConnections,
   totalEarnedQuestPoints,
   onNavigateToProfile,
   onNavigateToPath,
@@ -136,10 +139,11 @@ export function QuestsPage({
     <section className="profile-stack">
       <div className="content-panel page-panel">
         <p className="section-eyebrow">Quests</p>
-        <h1 className="page-title">Complete quests and earn points.</h1>
+        <h1 className="page-title">Shape the future of onchain decisions.</h1>
         <p className="body-copy">
-          Choose the role that fits you best. Supporters are open to everyone,
-          while Builder quests unlock after you connect GitHub from your profile.
+          DAVINCI is building the universal voting protocol. These quests reward
+          the people who use it, extend it, and put it in front of the world.
+          Pick your track and start earning.
         </p>
 
         <div
@@ -289,7 +293,7 @@ export function QuestsPage({
           <div className="quest-summary-copy">
             <p className="section-eyebrow">Roadmap</p>
             <h2 className="panel-title">{QUEST_ROLE_LABELS[selectedQuestRole]} quests</h2>
-            <p className="body-copy">{getQuestRoleDescription(selectedQuestRole)}</p>
+            <p className="body-copy">{getQuestRoleSummary(selectedQuestRole)}</p>
             {isSelectedQuestRoleLocked ? (
               <div className="quest-role-lockout quest-role-lockout-inline">
                 <span>
@@ -323,11 +327,6 @@ export function QuestsPage({
                 isCompleted: quest.isCompleted,
                 isLocked: isSelectedQuestRoleLocked,
               })
-              const questRequirementSource = getQuestRequirementSource(quest.achievement)
-              const isQuestSourceConnected =
-                questRequirementSource === null
-                  ? true
-                  : sourceConnections[questRequirementSource]
               const shouldShowQuestConnectionCta =
                 !quest.isCompleted && Boolean(quest.connectButton)
               const CallToActionIcon = resolveQuestIcon(
@@ -417,7 +416,6 @@ export function QuestsPage({
                         <div className="quest-card-cta-main">
                           <button
                             className="quest-card-cta-button"
-                            disabled={!isQuestSourceConnected}
                             onClick={() => {
                               const url = quest.callToAction?.url ?? ''
 

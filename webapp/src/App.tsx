@@ -17,7 +17,6 @@ import davinciLogo from './assets/davinci-logo.png'
 import type { AppConfig } from './config'
 import { useLeaderboard } from './hooks/useLeaderboard'
 import { useAppSession } from './hooks/useAppSession'
-import type { AppProfile } from './hooks/useAppSession'
 import { useQuests } from './hooks/useQuests'
 import { useWalletConnection } from './hooks/useWalletConnection'
 import { FaqPage } from './routes/FaqPage'
@@ -31,7 +30,6 @@ import {
   buildQuestStatsSummary,
   buildQuestAchievementContext,
   getQuestProgressHint,
-  type QuestRequirementSource,
   type QuestRole,
 } from './lib/quests'
 import type { SequencerStats, SequencerVerification } from './hooks/useAppSession'
@@ -44,10 +42,6 @@ type AppProps = {
 type AppPage = 'faq' | 'leaderboard' | 'profile' | 'quests' | 'rules' | 'sequencer'
 
 type OAuthProvider = Exclude<ConnectionVariant, 'twitter'>
-
-type StatsPayload = AppProfile['stats']
-
-type QuestSourceConnections = Record<QuestRequirementSource, boolean>
 
 const PROVIDER_LABELS = {
   discord: 'Discord',
@@ -154,40 +148,6 @@ function getProviderLabel(provider: keyof typeof PROVIDER_LABELS) {
   return PROVIDER_LABELS[provider]
 }
 
-function getStatsPayload({
-  session,
-  wallet,
-}: {
-  session: ReturnType<typeof useAppSession>
-  wallet: ReturnType<typeof useWalletConnection>
-}): StatsPayload | null {
-  if (
-    !wallet.isConnected ||
-    !wallet.address ||
-    !session.isAuthenticated ||
-    !session.profile
-  ) {
-    return null
-  }
-
-  return session.profile.stats
-}
-
-function getQuestSourceConnections({
-  session,
-}: {
-  session: ReturnType<typeof useAppSession>
-}): QuestSourceConnections {
-  return {
-    discord: Boolean(session.profile?.identities.discord.connected),
-    github: Boolean(session.profile?.identities.github.connected),
-    onchain: Boolean(session.profile?.stats.onchain.isConnected),
-    sequencer: Boolean(session.profile?.stats.sequencer.processes.length),
-    telegram: Boolean(session.profile?.identities.telegram.connected),
-    twitter: Boolean(session.profile?.identities.twitter.connected),
-  }
-}
-
 function App({ config }: AppProps) {
   const wallet = useWalletConnection(config)
   const session = useAppSession({
@@ -203,7 +163,6 @@ function App({ config }: AppProps) {
   })
   const { clearLinkFeedback, linkFeedback } = session
   const attemptedAutoSwitchRef = useRef<string | null>(null)
-  const lastLoggedStatsRef = useRef<string | null>(null)
   const signInWithWalletRef = useRef<() => Promise<void>>(async () => undefined)
   const [authError, setAuthError] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState<AppPage>(() =>
@@ -222,13 +181,6 @@ function App({ config }: AppProps) {
   const [providerAction, setProviderAction] = useState<
     OAuthProvider | 'sequencer' | 'twitter' | null
   >(null)
-  const questSourceConnections = getQuestSourceConnections({
-    session,
-  })
-  const payload = getStatsPayload({
-    session,
-    wallet,
-  })
   const requestAutoSwitch = useEffectEvent(() => {
     void wallet.requestSwitch()
   })
@@ -299,7 +251,6 @@ function App({ config }: AppProps) {
 
   useEffect(() => {
     if (!wallet.isConnected) {
-      lastLoggedStatsRef.current = null
       setShouldFinishNavbarLogin(false)
       setTwitterError(null)
       setTwitterProof(null)
@@ -337,20 +288,6 @@ function App({ config }: AppProps) {
   const isBuilderRoleUnlocked = Boolean(session.profile?.identities.github.connected)
   const isSelectedQuestRoleLocked =
     selectedQuestRole === 'builders' && !isBuilderRoleUnlocked
-
-  useEffect(() => {
-    if (!payload) {
-      return
-    }
-    const signature = JSON.stringify(payload)
-
-    if (lastLoggedStatsRef.current === signature) {
-      return
-    }
-
-    lastLoggedStatsRef.current = signature
-    console.log('User stats', payload)
-  }, [payload])
 
   useEffect(() => {
     if (
@@ -724,7 +661,6 @@ function App({ config }: AppProps) {
         questsAreError={quests.isError}
         resolvedQuests={resolvedQuests}
         selectedQuestRole={selectedQuestRole}
-        sourceConnections={questSourceConnections}
         totalEarnedQuestPoints={totalEarnedQuestPoints}
         onNavigateToProfile={() => {
           navigateToPage('profile')

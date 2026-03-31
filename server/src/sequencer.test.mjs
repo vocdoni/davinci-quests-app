@@ -1,9 +1,26 @@
 // @vitest-environment node
 
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => {
   const sequencerApi = {
+    getMetadata: vi.fn(async () => ({
+      meta: {
+        listInExplore: 'false',
+        network: 'celo',
+        origin: 'asktheworld-miniapp',
+        selfConfig: {
+          countries: ['ESP'],
+          country: 'ESP',
+          minAge: '18',
+          scope: 'ESP_18_yxzmt',
+        },
+      },
+    })),
+    getProcess: vi.fn(async (processId) => ({
+      id: processId,
+      metadataURI: 'https://sequencer.example.org/metadata/ask-the-world',
+    })),
     getAddressWeight: vi.fn(async () => '3'),
     hasAddressVoted: vi.fn(async () => true),
     listProcesses: vi.fn(async () => [`0x${'1'.repeat(62)}`]),
@@ -49,6 +66,17 @@ import {
 } from './sequencer.mjs'
 
 describe('sequencer helpers', () => {
+  beforeEach(() => {
+    mocks.DavinciSDK.mockClear()
+    mocks.createRandom.mockClear()
+    mocks.init.mockClear()
+    mocks.sequencerApi.getMetadata.mockClear()
+    mocks.sequencerApi.getProcess.mockClear()
+    mocks.sequencerApi.getAddressWeight.mockClear()
+    mocks.sequencerApi.hasAddressVoted.mockClear()
+    mocks.sequencerApi.listProcesses.mockClear()
+  })
+
   it('normalizes stored snapshots into a predictable response shape', () => {
     expect(
       normalizeSequencerSnapshot({
@@ -145,6 +173,10 @@ describe('sequencer helpers', () => {
     })
     expect(mocks.init).toHaveBeenCalledTimes(1)
     expect(mocks.sequencerApi.listProcesses).toHaveBeenCalledTimes(1)
+    expect(mocks.sequencerApi.getProcess).toHaveBeenCalledWith(processId)
+    expect(mocks.sequencerApi.getMetadata).toHaveBeenCalledWith(
+      'https://sequencer.example.org/metadata/ask-the-world',
+    )
     expect(mocks.sequencerApi.getAddressWeight).toHaveBeenCalledWith(
       processId,
       '0x123400000000000000000000000000000000abcd',
@@ -153,6 +185,77 @@ describe('sequencer helpers', () => {
       processId,
       '0x123400000000000000000000000000000000abcd',
     )
+  })
+
+  it('rejects processes whose metadata origin is not AskTheWorld', async () => {
+    mocks.sequencerApi.getMetadata.mockResolvedValueOnce({
+      meta: {
+        listInExplore: 'false',
+        network: 'celo',
+        origin: 'another-miniapp',
+        selfConfig: {
+          countries: ['ESP'],
+          country: 'ESP',
+          minAge: '18',
+          scope: 'ESP_18_yxzmt',
+        },
+      },
+    })
+
+    const dependencies = createSequencerDependencies({
+      sequencer: {
+        apiUrl: 'https://sequencer.example.org/',
+      },
+    })
+
+    await expect(
+      dependencies.verifyProcessStats({
+        processId: `0x${'1'.repeat(62)}`,
+        walletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    ).rejects.toMatchObject({
+      message: 'Process metadata does not match the AskTheWorld miniapp format.',
+      name: 'SequencerApiError',
+      status: 400,
+    })
+
+    expect(mocks.sequencerApi.getAddressWeight).not.toHaveBeenCalled()
+    expect(mocks.sequencerApi.hasAddressVoted).not.toHaveBeenCalled()
+  })
+
+  it('rejects processes whose metadata misses the AskTheWorld selfConfig shape', async () => {
+    mocks.sequencerApi.getMetadata.mockResolvedValueOnce({
+      meta: {
+        listInExplore: 'false',
+        network: 'celo',
+        origin: 'asktheworld-miniapp',
+        selfConfig: {
+          country: 'ESP',
+          minAge: '18',
+          scope: 'ESP_18_yxzmt',
+        },
+      },
+    })
+
+    const dependencies = createSequencerDependencies({
+      sequencer: {
+        apiUrl: 'https://sequencer.example.org/',
+      },
+    })
+
+    await expect(
+      dependencies.verifyProcessStats({
+        processId: `0x${'1'.repeat(62)}`,
+        walletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    ).rejects.toMatchObject({
+      message: 'Process metadata does not match the AskTheWorld miniapp format.',
+      name: 'SequencerApiError',
+      status: 400,
+    })
+
+    expect(mocks.sequencerApi.getAddressWeight).not.toHaveBeenCalled()
+    expect(mocks.sequencerApi.hasAddressVoted).not.toHaveBeenCalled()
   })
 
   it('throws a sequencer api error when a process is unknown', async () => {

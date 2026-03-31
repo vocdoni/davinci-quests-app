@@ -12,6 +12,7 @@ import {
 } from './index.mjs'
 import { loadQuestCatalog } from './quests.mjs'
 import { encryptSecret } from './security.mjs'
+import { SequencerApiError } from './sequencer.mjs'
 
 const baseConfig = {
   appSessionSecret: 'super-secret',
@@ -989,6 +990,57 @@ describe('API server', () => {
     expect(response.statusCode).toBe(400)
     expect(JSON.parse(response.body)).toEqual({
       message: 'Process id is invalid.',
+    })
+    expect(sequencerDependencies.verifyProcessStats).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects sequencer processes that do not match the AskTheWorld metadata format', async () => {
+    const account = privateKeyToAccount(
+      '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
+    )
+    const store = createMemoryStore()
+    const sequencerDependencies = {
+      verifyProcessStats: vi.fn(async () => {
+        throw new SequencerApiError(
+          'Process metadata does not match the AskTheWorld miniapp format.',
+          400,
+        )
+      }),
+    }
+    const server = createApiServer(baseConfig, {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      now: () => new Date('2026-03-25T12:00:00.000Z').getTime(),
+      onchain: createOnchainDependencies(),
+      sequencer: sequencerDependencies,
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    })
+    const { sessionCookie } = await authenticateWallet(server, account)
+    const response = await performRequest(server, {
+      body: JSON.stringify({
+        processId: `0x${'1'.repeat(62)}`,
+      }),
+      headers: {
+        'content-type': 'application/json',
+        cookie: sessionCookie ?? '',
+      },
+      method: 'POST',
+      url: '/api/sequencer/verify',
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(JSON.parse(response.body)).toEqual({
+      message: 'Process metadata does not match the AskTheWorld miniapp format.',
     })
     expect(sequencerDependencies.verifyProcessStats).toHaveBeenCalledTimes(1)
   })
@@ -2220,6 +2272,124 @@ describe('API server', () => {
       error: 'RPC rate limited.',
       numberOfProcesses: 0,
       totalVotes: '0',
+    })
+  })
+
+  it('keeps cached onchain stats and hides metadata fetch errors during refresh', async () => {
+    const account = privateKeyToAccount(
+      '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
+    )
+    const store = createMemoryStore()
+    let currentTime = new Date('2026-03-24T18:00:00.000Z').getTime()
+    await store.upsertWalletProfile(account.address, {
+      lastAuthenticatedAt: new Date('2026-03-24T18:00:00.000Z'),
+      onchainSnapshot: {
+        error: null,
+        lastSyncedAt: new Date('2026-03-24T18:00:00.000Z'),
+        numberOfProcesses: 5,
+        totalVotes: '13',
+      },
+    })
+    const onchain = createOnchainDependencies({
+      fetchUserStats: vi.fn(async () => {
+        throw new Error(
+          'Failed to fetch metadata from URL: Failed to fetch metadata from URL: 401 Unauthorized',
+        )
+      }),
+    })
+    const dependencies = {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      now: () => currentTime,
+      onchain,
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    }
+    const server = createApiServer(baseConfig, dependencies)
+    const { sessionCookie } = await authenticateWallet(server, account)
+
+    currentTime += 16 * 60 * 1000
+    const meResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/me',
+    })
+
+    expect(onchain.fetchUserStats).toHaveBeenCalledWith(account.address)
+    expect(JSON.parse(meResponse.body).stats.onchain).toMatchObject({
+      error: null,
+      numberOfProcesses: 5,
+      totalVotes: '13',
+    })
+  })
+
+  it('hides stored metadata fetch errors from cached onchain snapshots', async () => {
+    const account = privateKeyToAccount(
+      '0x59c6995e998f97a5a0044966f0945382d7e95aace3c46f9b8d401327582f5ea5',
+    )
+    const store = createMemoryStore()
+    const currentTime = new Date('2026-03-24T18:00:00.000Z').getTime()
+    await store.upsertWalletProfile(account.address, {
+      lastAuthenticatedAt: new Date('2026-03-24T18:00:00.000Z'),
+      onchainSnapshot: {
+        error:
+          'Failed to fetch metadata from URL: Failed to fetch metadata from URL: 401 Unauthorized',
+        lastSyncedAt: new Date('2026-03-24T18:00:00.000Z'),
+        numberOfProcesses: 5,
+        totalVotes: '13',
+      },
+    })
+    const onchain = createOnchainDependencies({
+      fetchUserStats: vi.fn(async () => {
+        throw new Error(
+          'Failed to fetch metadata from URL: Failed to fetch metadata from URL: 401 Unauthorized',
+        )
+      }),
+    })
+    const dependencies = {
+      discord: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchUserStats: vi.fn(),
+        refreshAccessToken: vi.fn(),
+      },
+      now: () => currentTime,
+      onchain,
+      store,
+      telegram: {
+        exchangeAuthorizationCode: vi.fn(),
+        fetchChannelMembership: vi.fn(),
+        getOidcConfiguration: vi.fn(),
+        verifyIdToken: vi.fn(),
+      },
+      verifyMessage,
+    }
+    const server = createApiServer(baseConfig, dependencies)
+    const { sessionCookie } = await authenticateWallet(server, account)
+
+    const meResponse = await performRequest(server, {
+      headers: {
+        cookie: sessionCookie ?? '',
+      },
+      method: 'GET',
+      url: '/api/me',
+    })
+
+    expect(onchain.fetchUserStats).toHaveBeenCalledWith(account.address)
+    expect(JSON.parse(meResponse.body).stats.onchain).toMatchObject({
+      error: null,
+      numberOfProcesses: 5,
+      totalVotes: '13',
     })
   })
 })

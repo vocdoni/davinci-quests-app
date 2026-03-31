@@ -630,7 +630,7 @@ describe('App', () => {
     render(<App config={baseConfig} />)
 
     expect(
-      screen.getByRole('heading', { name: 'Complete quests and earn points.' }),
+      screen.getByRole('heading', { name: 'Shape the future of onchain decisions.' }),
     ).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /Supporters/ })).toHaveAttribute(
       'aria-selected',
@@ -647,7 +647,7 @@ describe('App', () => {
       screen.getByRole('heading', { name: 'Join the Vocdoni Discord server' }),
     ).toBeInTheDocument()
     expect(screen.getByText('Click change to this track')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Join Discord/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Join Discord/ })).not.toBeDisabled()
     expect(
       screen.getByText('Open the Discord invite if you still need to join.'),
     ).toBeInTheDocument()
@@ -847,6 +847,61 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Connect Discord' })).toBeInTheDocument()
   })
 
+  it('keeps the main quest CTA enabled even when its source is not connected', () => {
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile({
+          sequencer: {
+            addressWeight: null,
+            error: null,
+            hasVoted: null,
+            isConnected: false,
+            isInCensus: null,
+            lastVerifiedAt: null,
+            processId: null,
+            processes: [],
+            numOfProcessAsParticipant: 0,
+            status: 'unverified',
+            votesCasted: 0,
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+    mockedUseQuests.mockReturnValue(
+      createQuestsState({
+        data: createQuestCatalog({
+          supporters: [
+            {
+              achievement: 'sequencer.hasVoted == true',
+              callToAction: {
+                help: 'Verify your vote after participating.',
+                title: 'Verify vote',
+                url: '/profile/sequencer',
+              },
+              description: 'Supporter quest description',
+              id: 1,
+              points: 100,
+              title: 'Verify a sequencer vote',
+            },
+          ],
+        }),
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    expect(screen.getByRole('button', { name: 'Verify vote' })).not.toBeDisabled()
+  })
+
   it('hides the quest call to action once the quest is completed', async () => {
     const user = userEvent.setup()
 
@@ -886,7 +941,8 @@ describe('App', () => {
 
     expect(screen.getByRole('heading', { name: 'Join the Vocdoni Discord server' })).toBeInTheDocument()
     expect(screen.getByText('Completed')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Join Discord/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Join Discord/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect Discord' })).not.toBeInTheDocument()
   })
 
   it('lets users preview builder quests before GitHub is connected', async () => {

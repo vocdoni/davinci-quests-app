@@ -72,9 +72,45 @@
       "achievement": "onchain.isConnected == true"
     },
     {
+      "id": 4,
+      "title": "Cast First Vote",
+      "description": "This is what DAVINCI was built for. Open any active voting process in AsktheWorld mini app, make your choice, and submit it onchain. Your first vote. Permanent and verifiable.",
+      "points": 75,
+      "achievement": "sequencer.votesCasted >= 1",
+      "callToAction": {
+        "icon": "BadgeCheck",
+        "title": "Verify a vote",
+        "help": "Click analyse a process on the AskTheWorld to verify your votes",
+        "url": "/profile/sequencer"
+      },
+      "connectButton": {
+        "icon": "Compass",
+        "title": "Explore AskTheWorld processes",
+        "url": "https://asktheworld.davinci.ninja/explore"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Verify Identity via Self",
+      "description": "Privacy-preserving identity verification powered by Self. Prove you're human without giving up your data: the way onchain identity should work.",
+      "points": 50,
+      "achievement": "sequencer.numOfProcessAsParticipant >= 1",
+      "callToAction": {
+        "icon": "BadgeCheck",
+        "title": "Verify a vote",
+        "help": "Click analyse a process on the AskTheWorld to verify your votes",
+        "url": "/profile/sequencer"
+      },
+      "connectButton": {
+        "icon": "Compass",
+        "title": "Explore AskTheWorld processes",
+        "url": "https://asktheworld.davinci.ninja/explore"
+      }
+    },
+    {
       "id": 6,
       "title": "Cast 5 Votes",
-      "description": "Participate in at least 5 processes on AskTheWorld, the mini app built on top of the DAVINCI protocol and Self.xyz to create onchain voting process, to complete this quest.",
+      "description": "You've got the hang of it. Five votes across any processes. You're becoming a regular voice in onchain governance.",
       "points": 60,
       "achievement": "sequencer.votesCasted >= 5",
       "callToAction": {
@@ -92,7 +128,7 @@
     {
       "id": 7,
       "title": "Cast 20 Votes",
-      "description": "Participate in at least 20 processes on AskTheWorld, the mini app built on top of the DAVINCI protocol and Self.xyz to create onchain voting process, to complete this quest.",
+      "description": "Twenty votes. You're not just using DAVINCI, you're proving that universal onchain voting has real, recurring demand. This matters.",
       "points": 150,
       "achievement": "sequencer.votesCasted >= 20",
       "callToAction": {
@@ -110,11 +146,11 @@
     {
       "id": 9,
       "title": "Create 3 Processes on AskTheWorld mini app",
-      "description": "AskTheWorld is a mini app built on top of the DAVINCI protocol that allows anyone to create and run on-chain Self.xyz identity based processes. Create 3 Processes to complete this quest.",
+      "description": "You're not just voting anymore, you're organizing. Create three voting processes on DAVINCI and see what happens when you put decisions in other people's hands.",
       "points": 100,
       "achievement": "onchain.numberOfProcesses >= 3",
       "callToAction": {
-        "icon": "KeyframesPlus",
+        "icon": "Plus",
         "title": "Create a Process",
         "help": "Click to create a process on the AskTheWorld",
         "url": "https://asktheworld.davinci.ninja/create"
@@ -123,7 +159,7 @@
     {
       "id": 10,
       "title": "Create 10 Processes on AskTheWorld mini app",
-      "description": "AskTheWorld is a mini app built on top of the DAVINCI protocol that allows anyone to create and run on-chain Self.xyz identity based processes. Create 10 Processes to complete this quest.",
+      "description": "Ten processes live on DAVINCI: you're generating real governance activity. The protocol gets stronger with every process created.",
       "points": 200,
       "achievement": "onchain.numberOfProcesses >= 10",
       "callToAction": {
@@ -136,7 +172,7 @@
     {
       "id": 11,
       "title": "Create 20 Processes on AskTheWorld mini app",
-      "description": "AskTheWorld is a mini app built on top of the DAVINCI protocol that allows anyone to create and run on-chain Self.xyz identity based processes. Create 20 Processes to complete this quest.",
+      "description": "Twenty processes. You're one of the most active process creators on the protocol, and a core part of the reason DAVINCI exists. Top creator status.",
       "points": 350,
       "achievement": "onchain.numberOfProcesses >= 20",
       "callToAction": {
@@ -149,7 +185,7 @@
     {
       "id": 12,
       "title": "Get 15 Users to Vote in Your Process",
-      "description": "AskTheWorld is a mini app built on top of the DAVINCI protocol that allows anyone to create and run on-chain Self.xyz identity based processes. Get 15 users to vote in all your Process to complete this quest.",
+      "description": "Creating a process is one thing. Getting people to show up and vote is another. Drive real participation in your voting processes and earn points as turnout grows.",
       "points": 75,
       "achievement": "onchain.totalVotes >= 15",
       "callToAction": {
@@ -162,7 +198,7 @@
     {
       "id": 13,
       "title": "Get 30 Users to Vote in Your Process",
-      "description": "AskTheWorld is a mini app built on top of the DAVINCI protocol that allows anyone to create and run on-chain Self.xyz identity based processes. Get 30 users to vote in all your Process to complete this quest.",
+      "description": "Creating a process is one thing. Getting people to show up and vote is another. Drive real participation in your voting processes and earn points as turnout grows.",
       "points": 125,
       "achievement": "onchain.totalVotes >= 30",
       "callToAction": {
@@ -175,7 +211,7 @@
     {
       "id": 14,
       "title": "Complete Sprint Campaign",
-      "description": "Complete all quests in Supporters track to finish the sprint campaign and earn this badge of honor. Show off your support for the project and your dedication to the community with this exclusive achievement.",
+      "description": "Finish every quest in the current sprint to unlock a bonus reward. This is for the people who show up, follow through, and don't leave points on the table.",
       "points": 100,
       "achievement": "quests.supporters.completed == quests.supporters.total - 1"
     }
