@@ -47,6 +47,35 @@ const DEFAULT_CONTEXT = {
   twitter: {},
 }
 
+function getEnabledQuests(quests) {
+  return Array.isArray(quests) ? quests.filter((quest) => quest?.disabled !== true) : []
+}
+
+function createQuestLookup(quests) {
+  return new Map(getEnabledQuests(quests).map((quest) => [quest.id, quest]))
+}
+
+function getCompletedQuestIds(sourceScore, role, questLookup, excludedQuest = null) {
+  const scoreKey =
+    role === 'builders' ? 'builderCompletedQuestIds' : 'supporterCompletedQuestIds'
+  const completedQuestIds = Array.isArray(sourceScore?.[scoreKey])
+    ? sourceScore[scoreKey].filter((value) => questLookup.has(value))
+    : []
+
+  if (!excludedQuest || excludedQuest.role !== role) {
+    return completedQuestIds
+  }
+
+  return completedQuestIds.filter((questId) => questId !== excludedQuest.id)
+}
+
+function sumQuestPoints(questLookup, completedQuestIds) {
+  return completedQuestIds.reduce(
+    (total, questId) => total + (questLookup.get(questId)?.points ?? 0),
+    0,
+  )
+}
+
 export function buildQuestStatsSummary(
   profile,
   questCatalog,
@@ -54,29 +83,31 @@ export function buildQuestStatsSummary(
   excludedQuest = null,
 ) {
   const sourceScore = profile?.score ?? scoreSnapshot ?? null
-  const excludeBuilderQuest =
-    excludedQuest?.role === 'builders' &&
-    Array.isArray(sourceScore?.builderCompletedQuestIds) &&
-    sourceScore.builderCompletedQuestIds.includes(excludedQuest.id)
-  const excludeSupporterQuest =
-    excludedQuest?.role === 'supporters' &&
-    Array.isArray(sourceScore?.supporterCompletedQuestIds) &&
-    sourceScore.supporterCompletedQuestIds.includes(excludedQuest.id)
+  const builderQuestLookup = createQuestLookup(questCatalog?.builders)
+  const supporterQuestLookup = createQuestLookup(questCatalog?.supporters)
+  const builderCompletedQuestIds = getCompletedQuestIds(
+    sourceScore,
+    'builders',
+    builderQuestLookup,
+    excludedQuest,
+  )
+  const supporterCompletedQuestIds = getCompletedQuestIds(
+    sourceScore,
+    'supporters',
+    supporterQuestLookup,
+    excludedQuest,
+  )
 
   return {
     builders: {
-      completed:
-        (sourceScore?.builderCompletedCount ?? 0) - (excludeBuilderQuest ? 1 : 0),
-      points: (sourceScore?.buildersPoints ?? 0) - (excludeBuilderQuest ? excludedQuest.points ?? 0 : 0),
-      total: Array.isArray(questCatalog?.builders) ? questCatalog.builders.length : 0,
+      completed: builderCompletedQuestIds.length,
+      points: sumQuestPoints(builderQuestLookup, builderCompletedQuestIds),
+      total: builderQuestLookup.size,
     },
     supporters: {
-      completed:
-        (sourceScore?.supporterCompletedCount ?? 0) - (excludeSupporterQuest ? 1 : 0),
-      points:
-        (sourceScore?.supportersPoints ?? 0) -
-        (excludeSupporterQuest ? excludedQuest.points ?? 0 : 0),
-      total: Array.isArray(questCatalog?.supporters) ? questCatalog.supporters.length : 0,
+      completed: supporterCompletedQuestIds.length,
+      points: sumQuestPoints(supporterQuestLookup, supporterCompletedQuestIds),
+      total: supporterQuestLookup.size,
     },
   }
 }
@@ -427,6 +458,8 @@ export function buildScoreSnapshotFromLocalState(
   previousScoreSnapshot = buildDefaultScoreSnapshot(),
   now = Date.now(),
 ) {
+  const supporterQuests = getEnabledQuests(questCatalog?.supporters)
+  const builderQuests = getEnabledQuests(questCatalog?.builders)
   const previousSupporterCompletedQuestIds = getPreviousCompletedQuestIds(
     previousScoreSnapshot,
     'supporters',
@@ -465,18 +498,18 @@ export function buildScoreSnapshotFromLocalState(
       : previousBuilderCompletedQuestIds.has(quest.id)
   }
 
-  const supporterCompletedQuestIds = questCatalog.supporters
+  const supporterCompletedQuestIds = supporterQuests
     .filter((quest) => evaluateQuest(quest, 'supporters'))
     .map((quest) => quest.id)
-  const builderCompletedQuestIds = questCatalog.builders
+  const builderCompletedQuestIds = builderQuests
     .filter((quest) => evaluateQuest(quest, 'builders'))
     .map((quest) => quest.id)
 
-  const supportersPoints = questCatalog.supporters.reduce(
+  const supportersPoints = supporterQuests.reduce(
     (total, quest) => total + (supporterCompletedQuestIds.includes(quest.id) ? quest.points : 0),
     0,
   )
-  const buildersPoints = questCatalog.builders.reduce(
+  const buildersPoints = builderQuests.reduce(
     (total, quest) => total + (builderCompletedQuestIds.includes(quest.id) ? quest.points : 0),
     0,
   )
@@ -543,7 +576,9 @@ export function evaluateQuestAchievement(achievement, context) {
 }
 
 export function buildScoreSnapshot(questCatalog, profile, now = Date.now()) {
-  const supporterCompletedQuestIds = questCatalog.supporters
+  const supporterQuests = getEnabledQuests(questCatalog?.supporters)
+  const builderQuests = getEnabledQuests(questCatalog?.builders)
+  const supporterCompletedQuestIds = supporterQuests
     .filter((quest) =>
       evaluateQuestAchievement(
         quest.achievement,
@@ -562,7 +597,7 @@ export function buildScoreSnapshot(questCatalog, profile, now = Date.now()) {
       ),
     )
     .map((quest) => quest.id)
-  const builderCompletedQuestIds = questCatalog.builders
+  const builderCompletedQuestIds = builderQuests
     .filter((quest) =>
       evaluateQuestAchievement(
         quest.achievement,
@@ -581,11 +616,11 @@ export function buildScoreSnapshot(questCatalog, profile, now = Date.now()) {
       ),
     )
     .map((quest) => quest.id)
-  const supportersPoints = questCatalog.supporters.reduce(
+  const supportersPoints = supporterQuests.reduce(
     (total, quest) => total + (supporterCompletedQuestIds.includes(quest.id) ? quest.points : 0),
     0,
   )
-  const buildersPoints = questCatalog.builders.reduce(
+  const buildersPoints = builderQuests.reduce(
     (total, quest) => total + (builderCompletedQuestIds.includes(quest.id) ? quest.points : 0),
     0,
   )

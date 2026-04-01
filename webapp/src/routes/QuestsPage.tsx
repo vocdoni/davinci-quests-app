@@ -59,12 +59,22 @@ function getQuestCountLabel(count: number) {
 }
 
 function getQuestStatusBadge({
+  isDisabled,
   isCompleted,
   isLocked,
 }: {
+  isDisabled: boolean
   isCompleted: boolean
   isLocked: boolean
 }) {
+  if (isDisabled) {
+    return {
+      icon: Hourglass,
+      label: 'Coming soon',
+      statusClassName: 'is-disabled',
+    }
+  }
+
   if (isLocked) {
     return {
       icon: Lock,
@@ -324,11 +334,14 @@ export function QuestsPage({
           <div className="quest-list">
             {resolvedQuests.map((quest) => {
               const statusBadge = getQuestStatusBadge({
+                isDisabled: quest.disabled === true,
                 isCompleted: quest.isCompleted,
                 isLocked: isSelectedQuestRoleLocked,
               })
               const shouldShowQuestConnectionCta =
-                !quest.isCompleted && Boolean(quest.connectButton)
+                quest.disabled !== true &&
+                !quest.isCompleted &&
+                Boolean(quest.connectButton)
               const CallToActionIcon = resolveQuestIcon(
                 quest.callToAction?.icon,
                 'ArrowRight',
@@ -340,7 +353,7 @@ export function QuestsPage({
 
               return (
                 <article
-                  className={`quest-card ${quest.isCompleted ? 'is-complete' : ''} ${isSelectedQuestRoleLocked ? 'is-locked' : ''}`}
+                  className={`quest-card ${quest.disabled === true ? 'is-disabled' : ''} ${quest.disabled !== true && quest.isCompleted ? 'is-complete' : ''} ${isSelectedQuestRoleLocked ? 'is-locked' : ''}`}
                   key={`${selectedQuestRole}:${quest.id}`}
                 >
                   <div className="quest-card-meta">
@@ -359,7 +372,7 @@ export function QuestsPage({
 
                   <h3 className="quest-card-title">{quest.title}</h3>
                   <p className="quest-card-description">{quest.description}</p>
-                  {quest.progressHint ? (
+                  {quest.disabled !== true && quest.progressHint ? (
                     <div className="quest-card-progress-shell">
                       <p className="quest-card-progress">
                         {quest.progressHint.remaining} more to complete
@@ -391,7 +404,11 @@ export function QuestsPage({
                     </div>
                   ) : null}
 
-                  {!quest.isCompleted &&
+                  {quest.disabled === true ? (
+                    <div className="quest-card-coming-soon-shell">
+                      <span className="quest-card-coming-soon-link">Coming soon</span>
+                    </div>
+                  ) : !quest.isCompleted &&
                   (quest.callToAction || shouldShowQuestConnectionCta) ? (
                     <div className="quest-card-cta">
                       {shouldShowQuestConnectionCta ? (

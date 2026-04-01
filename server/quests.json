@@ -201,6 +201,7 @@
       "description": "Creating a process is one thing. Getting people to show up and vote is another. Drive real participation in your voting processes and earn points as turnout grows.",
       "points": 75,
       "achievement": "onchain.totalVotes >= 15",
+      "disabled": true,
       "callToAction": {
         "icon": "Plus",
         "title": "Create a Process",
@@ -214,6 +215,7 @@
       "description": "Creating a process is one thing. Getting people to show up and vote is another. Drive real participation in your voting processes and earn points as turnout grows.",
       "points": 125,
       "achievement": "onchain.totalVotes >= 30",
+      "disabled": true,
       "callToAction": {
         "icon": "Plus",
         "title": "Create a Process",

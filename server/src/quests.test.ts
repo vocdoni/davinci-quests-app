@@ -11,7 +11,7 @@ describe('quest catalog helpers', () => {
     const catalog = loadQuestCatalog()
 
     expect(catalog.builders).toHaveLength(2)
-    expect(catalog.supporters).toHaveLength(11)
+    expect(catalog.supporters).toHaveLength(14)
     expect(catalog.supporters.find((quest) => quest.id === 6)).toMatchObject({
       achievement: 'sequencer.votesCasted >= 5',
       callToAction: {
@@ -209,6 +209,54 @@ describe('quest catalog helpers', () => {
         },
       ],
     })
+  })
+
+  it('preserves disabled quests in the normalized catalog', () => {
+    expect(
+      normalizeQuestCatalog({
+        builders: [],
+        supporters: [
+          {
+            achievement: 'discord.isInTargetServer == true',
+            disabled: true,
+            description: 'Disabled quest',
+            id: 1,
+            points: 10,
+            title: 'Disabled quest',
+          },
+        ],
+      }),
+    ).toEqual({
+      builders: [],
+      supporters: [
+        {
+          achievement: 'discord.isInTargetServer == true',
+          description: 'Disabled quest',
+          disabled: true,
+          id: 1,
+          points: 10,
+          title: 'Disabled quest',
+        },
+      ],
+    })
+  })
+
+  it('rejects non-boolean disabled flags', () => {
+    expect(() =>
+      normalizeQuestCatalog({
+        builders: [],
+        supporters: [
+          {
+            achievement: 'discord.isInTargetServer == true',
+            description: 'Disabled quest',
+            disabled: 'true',
+            id: 1,
+            points: 10,
+            title: 'Disabled quest',
+          },
+        ],
+      }),
+    ).toThrow('disabled must be a boolean')
   })
 
   it('falls back to the bundled catalog for the legacy ./src/quests.json path', () => {

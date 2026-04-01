@@ -1025,6 +1025,79 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Connect Discord' })).not.toBeInTheDocument()
   })
 
+  it('renders disabled quests as coming soon cards with no progress or actions', () => {
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile({
+          identities: {
+            discord: {
+              connected: true,
+              displayName: 'Quest Master',
+              error: null,
+              stats: {
+                isInTargetServer: true,
+                messagesInTargetChannel: 5,
+              },
+              status: 'active',
+              userId: '111111',
+              username: 'questmaster',
+            },
+          },
+          score: {
+            supporterCompletedCount: 1,
+            supporterCompletedQuestIds: [1],
+            supportersPoints: 100,
+            totalPoints: 100,
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+    mockedUseQuests.mockReturnValue(
+      createQuestsState({
+        data: createQuestCatalog({
+          builders: [],
+          supporters: [
+            {
+              achievement: 'discord.isInTargetServer == true',
+              callToAction: {
+                help: 'This quest is not live yet.',
+                title: 'Join Discord',
+                url: 'https://example.org/discord',
+              },
+              connectButton: {
+                title: 'Connect Discord',
+                url: '/profile',
+              },
+              description: 'Disabled quest description',
+              disabled: true,
+              id: 1,
+              points: 100,
+              title: 'Disabled supporter quest',
+            },
+          ],
+        }),
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    expect(screen.getByRole('heading', { name: 'Disabled supporter quest' })).toBeInTheDocument()
+    expect(screen.getAllByText('Coming soon').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Join Discord' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect Discord' })).not.toBeInTheDocument()
+    expect(screen.queryByText('1 required')).not.toBeInTheDocument()
+    expect(screen.queryByText('1 more to complete')).not.toBeInTheDocument()
+  })
+
   it('lets users preview builder quests before GitHub is connected', async () => {
     const user = userEvent.setup()
 

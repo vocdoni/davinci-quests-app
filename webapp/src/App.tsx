@@ -581,9 +581,10 @@ function App({ config }: AppProps) {
     session.profile,
     quests.data,
   )
+  const questProgressByRole = buildQuestStatsSummary(session.profile, quests.data)
   const questCounts: Record<QuestRole, number> = {
-    builders: quests.data?.builders.length ?? 0,
-    supporters: quests.data?.supporters.length ?? 0,
+    builders: questProgressByRole.builders.total,
+    supporters: questProgressByRole.supporters.total,
   }
   const completedQuestIdsByRole: Record<QuestRole, Set<number>> = {
     builders: new Set(session.profile?.score.builderCompletedQuestIds ?? []),
@@ -591,11 +592,17 @@ function App({ config }: AppProps) {
   }
   const resolvedQuests = activeQuestList.map((quest) => ({
     ...quest,
-    isCompleted: completedQuestIdsByRole[selectedQuestRole].has(quest.id),
-    progressHint: getQuestProgressHint(quest.achievement, questAchievementContext),
+    isCompleted:
+      quest.disabled === true
+        ? false
+        : completedQuestIdsByRole[selectedQuestRole].has(quest.id),
+    progressHint:
+      quest.disabled === true
+        ? null
+        : getQuestProgressHint(quest.achievement, questAchievementContext),
   }))
-  const questProgressByRole = buildQuestStatsSummary(session.profile, quests.data)
-  const totalEarnedQuestPoints = session.profile?.score.totalPoints ?? 0
+  const totalEarnedQuestPoints =
+    questProgressByRole.builders.points + questProgressByRole.supporters.points
   const isGithubConnected = Boolean(session.profile?.identities.github.connected)
   const questLoadingMessage = quests.isPending ? 'Loading quests...' : null
   const questErrorMessage =

@@ -58,10 +58,10 @@ describe('buildScoreSnapshot', () => {
       builderCompletedQuestIds: [1],
       buildersPoints: 25,
       lastComputedAt: new Date(1_000_000),
-      supporterCompletedCount: 5,
-      supporterCompletedQuestIds: [1, 2, 9, 12, 13],
-      supportersPoints: 340,
-      totalPoints: 365,
+      supporterCompletedCount: 6,
+      supporterCompletedQuestIds: [1, 2, 8, 9, 12, 13],
+      supportersPoints: 390,
+      totalPoints: 415,
     })
   })
 
@@ -319,6 +319,86 @@ describe('buildScoreSnapshot', () => {
 
     expect(score.supporterCompletedQuestIds).toEqual([1, 2, 3, 9, 14])
     expect(score.supportersPoints).toBe(175)
+  })
+
+  it('ignores disabled quests in score totals and quest-summary arithmetic', () => {
+    const score = buildScoreSnapshotFromLocalState(
+      {
+        builders: [],
+        supporters: [
+          {
+            achievement: 'discord.isInTargetServer == true',
+            description: 'Join the Discord server.',
+            id: 1,
+            points: 20,
+            title: 'Join Discord',
+          },
+          {
+            achievement: 'onchain.isConnected == true',
+            description: 'This quest is not live yet.',
+            disabled: true,
+            id: 2,
+            points: 50,
+            title: 'Connect wallet later',
+          },
+          {
+            achievement: 'quests.supporters.completed == quests.supporters.total - 1',
+            description: 'Complete every live supporter quest except this one.',
+            id: 3,
+            points: 10,
+            title: 'Quest summary',
+          },
+        ],
+      },
+      {
+        identities: {
+          discord: {
+            stats: {
+              isInTargetServer: true,
+            },
+          },
+          github: {
+            stats: {
+              isFollowingTargetOrganization: null,
+              isOlderThanOneYear: null,
+              publicNonForkRepositoryCount: null,
+              targetOrganization: null,
+              targetRepositories: [],
+            },
+          },
+          telegram: {
+            stats: {
+              isInTargetChannel: null,
+            },
+          },
+          twitter: {
+            stats: {},
+          },
+        },
+        onchain: {
+          error: null,
+          isConnected: true,
+          numberOfProcesses: 0,
+          totalVotes: '0',
+        },
+        score: {
+          builderCompletedCount: 0,
+          builderCompletedQuestIds: [],
+          buildersPoints: 0,
+          lastComputedAt: null,
+          supporterCompletedCount: 1,
+          supporterCompletedQuestIds: [1],
+          supportersPoints: 20,
+          totalPoints: 20,
+        },
+      },
+      undefined,
+      1_000_000,
+    )
+
+    expect(score.supporterCompletedQuestIds).toEqual([1, 3])
+    expect(score.supportersPoints).toBe(30)
+    expect(score.totalPoints).toBe(30)
   })
 
   it('keeps the quest-summary quest completed on subsequent score rebuilds', () => {

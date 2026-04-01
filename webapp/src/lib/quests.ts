@@ -23,6 +23,7 @@ export type QuestDefinition = {
     title: string
     url: string
   }
+  disabled?: boolean
   description: string
   id: number
   points: number
@@ -124,6 +125,33 @@ function buildEmptyQuestStatsSummary(): QuestStatsSummary {
       total: 0,
     },
   }
+}
+
+function getEnabledQuests(quests: QuestDefinition[] | null | undefined) {
+  return Array.isArray(quests) ? quests.filter((quest) => quest.disabled !== true) : []
+}
+
+function createQuestLookup(quests: QuestDefinition[] | null | undefined) {
+  return new Map(getEnabledQuests(quests).map((quest) => [quest.id, quest]))
+}
+
+function getCompletedQuestIds(
+  completedQuestIds: number[] | null | undefined,
+  questLookup: Map<number, QuestDefinition>,
+) {
+  return Array.isArray(completedQuestIds)
+    ? completedQuestIds.filter((questId) => questLookup.has(questId))
+    : []
+}
+
+function sumQuestPoints(
+  questLookup: Map<number, QuestDefinition>,
+  completedQuestIds: number[],
+) {
+  return completedQuestIds.reduce(
+    (total, questId) => total + (questLookup.get(questId)?.points ?? 0),
+    0,
+  )
 }
 
 const DEFAULT_ACHIEVEMENT_CONTEXT: QuestAchievementContext = {
@@ -487,27 +515,27 @@ export function buildQuestStatsSummary(
     }
   }
 
-  const score = profile.score ?? {
-    builderCompletedCount: 0,
-    builderCompletedQuestIds: [],
-    buildersPoints: 0,
-    lastComputedAt: null,
-    supporterCompletedCount: 0,
-    supporterCompletedQuestIds: [],
-    supportersPoints: 0,
-    totalPoints: 0,
-  }
+  const builderQuestLookup = createQuestLookup(questCatalog.builders)
+  const supporterQuestLookup = createQuestLookup(questCatalog.supporters)
+  const builderCompletedQuestIds = getCompletedQuestIds(
+    profile.score?.builderCompletedQuestIds,
+    builderQuestLookup,
+  )
+  const supporterCompletedQuestIds = getCompletedQuestIds(
+    profile.score?.supporterCompletedQuestIds,
+    supporterQuestLookup,
+  )
 
   return {
     builders: {
-      completed: score.builderCompletedCount,
-      points: score.buildersPoints,
-      total: questCatalog.builders.length,
+      completed: builderCompletedQuestIds.length,
+      points: sumQuestPoints(builderQuestLookup, builderCompletedQuestIds),
+      total: builderQuestLookup.size,
     },
     supporters: {
-      completed: score.supporterCompletedCount,
-      points: score.supportersPoints,
-      total: questCatalog.supporters.length,
+      completed: supporterCompletedQuestIds.length,
+      points: sumQuestPoints(supporterQuestLookup, supporterCompletedQuestIds),
+      total: supporterQuestLookup.size,
     },
   }
 }

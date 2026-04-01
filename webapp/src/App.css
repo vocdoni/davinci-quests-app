@@ -917,10 +917,27 @@
   border-color: rgba(77, 122, 96, 0.28);
 }
 
+.quest-card.is-disabled {
+  background: rgba(241, 239, 235, 0.92);
+  border-color: rgba(112, 112, 112, 0.18);
+}
+
 .quest-card.is-locked {
   background: rgba(255, 248, 238, 0.68);
   border-color: rgba(59, 43, 33, 0.08);
   opacity: 0.8;
+}
+
+.quest-card.is-disabled .quest-order,
+.quest-card.is-disabled .quest-card-title,
+.quest-card.is-disabled .quest-card-description,
+.quest-card.is-disabled .quest-points-chip {
+  color: #7b7a77;
+}
+
+.quest-card.is-disabled .quest-points-chip {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(112, 112, 112, 0.16);
 }
 
 .quest-card-meta {
@@ -1124,6 +1141,21 @@
   opacity: 1;
 }
 
+.quest-card-coming-soon-shell {
+  align-self: flex-end;
+  margin-left: auto;
+  margin-top: 4px;
+}
+
+.quest-card-coming-soon-link {
+  color: #7b7a77;
+  cursor: default;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
 @media (max-width: 640px) {
   .quest-card-cta {
     align-self: stretch;
@@ -1171,6 +1203,11 @@
 .quest-status-badge.is-pending {
   background: rgba(214, 195, 168, 0.62);
   color: var(--color-muted);
+}
+
+.quest-status-badge.is-disabled {
+  background: rgba(224, 222, 218, 0.92);
+  color: #7b7a77;
 }
 
 .quest-status-badge.is-locked {

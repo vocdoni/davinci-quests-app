@@ -442,4 +442,126 @@ describe('quest achievement helpers', () => {
       },
     })
   })
+
+  it('excludes disabled quests from totals and completed points', () => {
+    const stats = buildQuestStatsSummary(
+      {
+        identities: {
+          discord: {
+            connected: true,
+            displayName: null,
+            error: null,
+            stats: {
+              isInTargetServer: true,
+              messagesInTargetChannel: null,
+            },
+            status: 'active',
+            userId: 'discord-user',
+            username: 'discord-user',
+          },
+          github: {
+            connected: false,
+            displayName: null,
+            error: null,
+            stats: {
+              isFollowingTargetOrganization: null,
+              isOlderThanOneYear: null,
+              publicNonForkRepositoryCount: null,
+              targetOrganization: null,
+              targetRepositories: [],
+            },
+            status: 'disconnected',
+            userId: null,
+            username: null,
+          },
+          telegram: {
+            connected: false,
+            displayName: null,
+            error: null,
+            stats: {
+              isInTargetChannel: null,
+            },
+            status: 'disconnected',
+            userId: null,
+            username: null,
+          },
+          twitter: {
+            connected: false,
+            displayName: null,
+            error: null,
+            stats: {},
+            status: 'disconnected',
+            userId: null,
+            username: null,
+          },
+        },
+        onchain: {
+          error: null,
+          isConnected: true,
+          numberOfProcesses: 1,
+          totalVotes: '0',
+        },
+        sequencer: {
+          addressWeight: null,
+          error: null,
+          hasVoted: null,
+          isConnected: false,
+          isInCensus: null,
+          lastVerifiedAt: null,
+          processId: null,
+          processes: [],
+          numOfProcessAsParticipant: 0,
+          status: 'unverified',
+          votesCasted: 0,
+        },
+        score: {
+          builderCompletedCount: 0,
+          builderCompletedQuestIds: [],
+          buildersPoints: 0,
+          lastComputedAt: null,
+          supporterCompletedCount: 2,
+          supporterCompletedQuestIds: [1, 2],
+          supportersPoints: 70,
+          totalPoints: 70,
+        },
+        wallet: {
+          address: '0x123400000000000000000000000000000000abcd',
+          ensName: null,
+        },
+      },
+      {
+        builders: [],
+        supporters: [
+          {
+            achievement: 'discord.isInTargetServer == true',
+            description: 'Join Discord',
+            id: 1,
+            points: 20,
+            title: 'Join Discord',
+          },
+          {
+            achievement: 'onchain.isConnected == true',
+            description: 'Disabled quest',
+            disabled: true,
+            id: 2,
+            points: 50,
+            title: 'Disabled quest',
+          },
+        ],
+      },
+    )
+
+    expect(stats).toEqual({
+      builders: {
+        completed: 0,
+        points: 0,
+        total: 0,
+      },
+      supporters: {
+        completed: 1,
+        points: 20,
+        total: 1,
+      },
+    })
+  })
 })

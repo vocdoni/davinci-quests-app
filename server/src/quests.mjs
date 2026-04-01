@@ -38,6 +38,10 @@ function normalizeQuest(role, quest, index) {
     throw new Error(`Quest ${quest.id} in ${role} must define an achievement expression.`)
   }
 
+  if (quest.disabled !== undefined && typeof quest.disabled !== 'boolean') {
+    throw new Error(`Quest ${quest.id} in ${role} disabled must be a boolean.`)
+  }
+
   let callToAction = null
   let connectButton = null
 
@@ -143,6 +147,10 @@ function normalizeQuest(role, quest, index) {
     id: quest.id,
     points: quest.points,
     title: quest.title.trim(),
+  }
+
+  if (quest.disabled === true) {
+    normalizedQuest.disabled = true
   }
 
   if (callToAction) {
