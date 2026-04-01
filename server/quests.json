@@ -144,6 +144,19 @@
       }
     },
     {
+      "id": 8,
+      "title": "Try New Mini App",
+      "description": "Every mini app built on DAVINCI is a new use case for universal voting. Explore the latest one, interact with it, and earn points for being an early tester.",
+      "points": 50,
+      "achievement": "onchain.numberOfProcesses >= 1",
+      "callToAction": {
+        "icon": "AppNotification",
+        "title": "Explore MiniApps",
+        "help": "Click to explore the new miniapp: AskTheWorld",
+        "url": "https://asktheworld.davinci.ninja/"
+      }
+    },
+    {
       "id": 9,
       "title": "Create 3 Processes on AskTheWorld mini app",
       "description": "You're not just voting anymore, you're organizing. Create three voting processes on DAVINCI and see what happens when you put decisions in other people's hands.",
