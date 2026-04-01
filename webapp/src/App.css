@@ -1357,7 +1357,13 @@
 .sequencer-form {
   display: grid;
   gap: 12px;
-  max-width: 560px;
+  max-width: 720px;
+}
+
+.sequencer-input-row {
+  align-items: stretch;
+  display: flex;
+  gap: 12px;
 }
 
 .sequencer-process-label {
@@ -1367,11 +1373,14 @@
 }
 
 .sequencer-process-input {
-  max-width: 44rem;
+  flex: 1 1 auto;
+  max-width: none;
+  min-width: 0;
 }
 
 .sequencer-verify-button {
-  width: fit-content;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .sequencer-status-card {
@@ -1888,6 +1897,14 @@
 
   .connection-actions,
   .connection-actions .minimal-button {
+    width: 100%;
+  }
+
+  .sequencer-input-row {
+    flex-direction: column;
+  }
+
+  .sequencer-verify-button {
     width: 100%;
   }
 

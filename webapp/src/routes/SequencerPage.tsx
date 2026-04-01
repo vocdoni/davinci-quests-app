@@ -88,8 +88,9 @@ export function SequencerPage({
         <p className="section-eyebrow">Sequencer</p>
         <h1 className="page-title">Verify a process against your wallet.</h1>
         <p className="body-copy">
-          Submit a DAVINCI process id and the server will check whether your
-          wallet is in the census and whether you have voted in that process.
+          Submit a DAVINCI process id, or a link containing one, and we will
+          check whether your signed-in wallet is in that process census,
+          whether it has voted, and the voter weight returned by the sequencer.
         </p>
 
         {profileRequiresSignIn ? (
@@ -109,8 +110,8 @@ export function SequencerPage({
       <div className="content-panel page-panel">
         <h2 className="panel-title">Process verification</h2>
         <p className="body-copy">
-          Paste a process id and we will store the verification snapshot on your
-          profile.
+          We store the verification snapshot on your profile so your quest
+          progress can use the latest result for that process.
         </p>
 
         <div className="sequencer-form">
@@ -118,30 +119,43 @@ export function SequencerPage({
             className="sequencer-process-label"
             htmlFor="sequencer-process-id"
           >
-            Process id
+            Process id or link
           </label>
-          <input
-            className="twitter-proof-input sequencer-process-input"
-            id="sequencer-process-id"
-            onChange={(event) => {
-              onProcessIdChange(event.target.value)
-            }}
-            placeholder="0x..."
-            type="text"
-            value={processId}
-          />
-          <button
-            className="minimal-button sequencer-verify-button"
-            disabled={!isSignedIn || isSessionActionDisabled || processId.trim().length === 0}
-            onClick={onVerify}
-            type="button"
+          <p
+            className="body-copy"
+            id="sequencer-process-help"
           >
-            <Search
-              aria-hidden={true}
-              className="quest-card-cta-icon"
+            Paste a raw process id like <code>0x...</code>, or any link that
+            contains one.
+          </p>
+          <div className="sequencer-input-row">
+            <input
+              aria-describedby="sequencer-process-help"
+              autoCapitalize="off"
+              autoCorrect="off"
+              className="twitter-proof-input sequencer-process-input"
+              id="sequencer-process-id"
+              onChange={(event) => {
+                onProcessIdChange(event.target.value)
+              }}
+              placeholder="0x... or https://..."
+              spellCheck={false}
+              type="text"
+              value={processId}
             />
-            {isSessionActionDisabled ? 'Verifying...' : 'Verify process'}
-          </button>
+            <button
+              className="minimal-button sequencer-verify-button"
+              disabled={!isSignedIn || isSessionActionDisabled || processId.trim().length === 0}
+              onClick={onVerify}
+              type="button"
+            >
+              <Search
+                aria-hidden={true}
+                className="quest-card-cta-icon"
+              />
+              {isSessionActionDisabled ? 'Verifying...' : 'Verify process'}
+            </button>
+          </div>
         </div>
 
         {errorMessage ? (

@@ -811,6 +811,86 @@ describe('App', () => {
     expect(window.location.pathname).toBe('/profile/sequencer')
   })
 
+  it('accepts a process link and extracts the process id before verification', async () => {
+    window.history.replaceState(null, '', '/profile/sequencer')
+
+    const user = userEvent.setup()
+    const processId = `0x${'1'.repeat(62)}`
+    const verifySequencerProcess = vi.fn(async (nextProcessId: string) =>
+      createSequencerVerification(nextProcessId),
+    )
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile(),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+        verifySequencerProcess,
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    const processInput = screen.getByLabelText('Process id or link')
+
+    await user.clear(processInput)
+    await user.type(
+      processInput,
+      `https://explorer.example.org/processes/${processId}?tab=results`,
+    )
+    await user.click(screen.getByRole('button', { name: 'Verify process' }))
+
+    await waitFor(() => {
+      expect(verifySequencerProcess).toHaveBeenCalledWith(processId)
+    })
+    expect(screen.getByDisplayValue(processId)).toBeInTheDocument()
+  })
+
+  it('shows a validation error when the sequencer input does not contain a valid process id', async () => {
+    window.history.replaceState(null, '', '/profile/sequencer')
+
+    const user = userEvent.setup()
+    const verifySequencerProcess = vi.fn(async (nextProcessId: string) =>
+      createSequencerVerification(nextProcessId),
+    )
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile(),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+        verifySequencerProcess,
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    const processInput = screen.getByLabelText('Process id or link')
+
+    await user.clear(processInput)
+    await user.type(processInput, 'https://explorer.example.org/processes/not-a-process-id')
+    await user.click(screen.getByRole('button', { name: 'Verify process' }))
+
+    expect(verifySequencerProcess).not.toHaveBeenCalled()
+    expect(
+      screen.getByText('Enter a valid process id or a link containing one.'),
+    ).toBeInTheDocument()
+  })
+
   it('keeps the connect button visible until the quest is completed', () => {
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({

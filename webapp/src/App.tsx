@@ -148,6 +148,39 @@ function getProviderLabel(provider: keyof typeof PROVIDER_LABELS) {
   return PROVIDER_LABELS[provider]
 }
 
+const SEQUENCER_PROCESS_ID_PATTERN =
+  /(^|[^0-9a-fA-F])(0[xX][0-9a-fA-F]{62}|[0-9a-fA-F]{62})(?=$|[^0-9a-fA-F])/gu
+
+function normalizeSequencerProcessIdInput(value: string) {
+  const trimmedValue = value.trim()
+
+  if (trimmedValue.length === 0) {
+    return null
+  }
+
+  const directMatch = trimmedValue.match(/^(?:0[xX])?([0-9a-fA-F]{62})$/u)
+
+  if (directMatch) {
+    return `0x${directMatch[1].toLowerCase()}`
+  }
+
+  for (const match of trimmedValue.matchAll(SEQUENCER_PROCESS_ID_PATTERN)) {
+    const candidate = match[2]
+
+    if (!candidate) {
+      continue
+    }
+
+    const normalizedCandidate = candidate.toLowerCase().replace(/^0x/u, '')
+
+    if (/^[0-9a-f]{62}$/u.test(normalizedCandidate)) {
+      return `0x${normalizedCandidate}`
+    }
+  }
+
+  return null
+}
+
 function App({ config }: AppProps) {
   const wallet = useWalletConnection(config)
   const session = useAppSession({
@@ -475,10 +508,14 @@ function App({ config }: AppProps) {
   }
 
   const handleSequencerVerify = async () => {
-    const normalizedProcessId = sequencerProcessId.trim()
+    const normalizedProcessId = normalizeSequencerProcessIdInput(sequencerProcessId)
 
     if (!normalizedProcessId) {
-      setSequencerError('Process id is required.')
+      setSequencerError(
+        sequencerProcessId.trim().length === 0
+          ? 'Enter a process id or a link containing one.'
+          : 'Enter a valid process id or a link containing one.',
+      )
       return
     }
 
