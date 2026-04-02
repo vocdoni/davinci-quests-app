@@ -1098,6 +1098,82 @@ describe('App', () => {
     expect(screen.queryByText('1 more to complete')).not.toBeInTheDocument()
   })
 
+  it('renders expired quests as disabled cards with an expiration label', () => {
+    const now = Date.parse('2026-04-02T12:00:00.000Z')
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(
+      createSession({
+        isAuthenticated: true,
+        profile: createProfile({
+          identities: {
+            discord: {
+              connected: true,
+              displayName: 'Quest Master',
+              error: null,
+              stats: {
+                isInTargetServer: true,
+                messagesInTargetChannel: 5,
+              },
+              status: 'active',
+              userId: '111111',
+              username: 'questmaster',
+            },
+          },
+          score: {
+            supporterCompletedCount: 0,
+            supporterCompletedQuestIds: [],
+            supportersPoints: 0,
+            totalPoints: 0,
+          },
+        }),
+        sessionWalletAddress: '0x123400000000000000000000000000000000abcd',
+      }),
+    )
+    mockedUseQuests.mockReturnValue(
+      createQuestsState({
+        data: createQuestCatalog({
+          supporters: [
+            {
+              achievement: 'discord.isInTargetServer == true',
+              callToAction: {
+                help: 'This quest is no longer live.',
+                title: 'Join Discord',
+                url: 'https://example.org/discord',
+              },
+              connectButton: {
+                title: 'Connect Discord',
+                url: '/profile',
+              },
+              description: 'Expired quest description',
+              id: 1,
+              points: 100,
+              title: 'Expired supporter quest',
+              validUntil: '2026-04-01T12:00:00.000Z',
+            },
+          ],
+        }),
+      }),
+    )
+
+    render(<App config={baseConfig} />)
+
+    expect(screen.getByRole('heading', { name: 'Expired supporter quest' })).toBeInTheDocument()
+    expect(screen.getByText('Expired 1 day ago')).toBeInTheDocument()
+    expect(screen.getByText('Expired', { selector: '.quest-status-badge' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Join Discord' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect Discord' })).not.toBeInTheDocument()
+    expect(screen.queryByText('1 required')).not.toBeInTheDocument()
+    expect(screen.queryByText('1 more to complete')).not.toBeInTheDocument()
+  })
+
   it('lets users preview builder quests before GitHub is connected', async () => {
     const user = userEvent.setup()
 

@@ -931,7 +931,8 @@
 .quest-card.is-disabled .quest-order,
 .quest-card.is-disabled .quest-card-title,
 .quest-card.is-disabled .quest-card-description,
-.quest-card.is-disabled .quest-points-chip {
+.quest-card.is-disabled .quest-points-chip,
+.quest-card.is-disabled .quest-card-valid-until {
   color: #7b7a77;
 }
 
@@ -990,6 +991,14 @@
 .quest-card-description {
   color: var(--color-muted);
   line-height: 1.7;
+}
+
+.quest-card-valid-until {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: -4px 0 0;
 }
 
 .quest-card-progress-shell {

@@ -27,6 +27,7 @@ export type QuestDefinition = {
   description: string
   id: number
   points: number
+  validUntil?: string
   title: string
 }
 
@@ -52,6 +53,11 @@ export type QuestProgressHint = {
   current: number
   remaining: number
   required: number
+}
+
+export type QuestValidityStatus = {
+  isExpired: boolean
+  label: string | null
 }
 
 export type QuestAchievementContext = {
@@ -152,6 +158,68 @@ function sumQuestPoints(
     (total, questId) => total + (questLookup.get(questId)?.points ?? 0),
     0,
   )
+}
+
+function formatQuestDuration(milliseconds: number) {
+  const duration = Math.abs(milliseconds)
+
+  if (duration < 60_000) {
+    return 'less than a minute'
+  }
+
+  const units = [
+    { milliseconds: 365 * 24 * 60 * 60 * 1000, singular: 'year' },
+    { milliseconds: 30 * 24 * 60 * 60 * 1000, singular: 'month' },
+    { milliseconds: 7 * 24 * 60 * 60 * 1000, singular: 'week' },
+    { milliseconds: 24 * 60 * 60 * 1000, singular: 'day' },
+    { milliseconds: 60 * 60 * 1000, singular: 'hour' },
+    { milliseconds: 60_000, singular: 'minute' },
+  ] as const
+
+  for (const unit of units) {
+    if (duration >= unit.milliseconds) {
+      const value = Math.floor(duration / unit.milliseconds)
+      return `${value} ${unit.singular}${value === 1 ? '' : 's'}`
+    }
+  }
+
+  return 'less than a minute'
+}
+
+export function getQuestValidityStatus(
+  validUntil: string | null | undefined,
+  now = Date.now(),
+): QuestValidityStatus {
+  if (typeof validUntil !== 'string' || validUntil.trim().length === 0) {
+    return {
+      isExpired: false,
+      label: null,
+    }
+  }
+
+  const validUntilTimestamp = Date.parse(validUntil)
+
+  if (Number.isNaN(validUntilTimestamp)) {
+    return {
+      isExpired: false,
+      label: null,
+    }
+  }
+
+  const remaining = validUntilTimestamp - now
+  const durationLabel = formatQuestDuration(remaining)
+
+  if (remaining <= 0) {
+    return {
+      isExpired: true,
+      label: `Expired ${durationLabel} ago`,
+    }
+  }
+
+  return {
+    isExpired: false,
+    label: `Expires in ${durationLabel}`,
+  }
 }
 
 const DEFAULT_ACHIEVEMENT_CONTEXT: QuestAchievementContext = {

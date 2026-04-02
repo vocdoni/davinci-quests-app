@@ -61,16 +61,26 @@ function getQuestCountLabel(count: number) {
 function getQuestStatusBadge({
   isDisabled,
   isCompleted,
+  isExpired,
   isLocked,
 }: {
   isDisabled: boolean
   isCompleted: boolean
+  isExpired: boolean
   isLocked: boolean
 }) {
-  if (isDisabled) {
+  if (isCompleted) {
+    return {
+      icon: CheckCircle,
+      label: 'Completed',
+      statusClassName: 'is-complete',
+    }
+  }
+
+  if (isDisabled || isExpired) {
     return {
       icon: Hourglass,
-      label: 'Coming soon',
+      label: isExpired ? 'Expired' : 'Coming soon',
       statusClassName: 'is-disabled',
     }
   }
@@ -80,14 +90,6 @@ function getQuestStatusBadge({
       icon: Lock,
       label: 'Locked',
       statusClassName: 'is-locked',
-    }
-  }
-
-  if (isCompleted) {
-    return {
-      icon: CheckCircle,
-      label: 'Completed',
-      statusClassName: 'is-complete',
     }
   }
 
@@ -333,13 +335,16 @@ export function QuestsPage({
         ) : (
           <div className="quest-list">
             {resolvedQuests.map((quest) => {
+              const isQuestExpired = quest.isExpired && !quest.isCompleted
+              const isQuestUnavailable = quest.disabled === true || isQuestExpired
               const statusBadge = getQuestStatusBadge({
                 isDisabled: quest.disabled === true,
                 isCompleted: quest.isCompleted,
+                isExpired: isQuestExpired,
                 isLocked: isSelectedQuestRoleLocked,
               })
               const shouldShowQuestConnectionCta =
-                quest.disabled !== true &&
+                !isQuestUnavailable &&
                 !quest.isCompleted &&
                 Boolean(quest.connectButton)
               const CallToActionIcon = resolveQuestIcon(
@@ -353,7 +358,7 @@ export function QuestsPage({
 
               return (
                 <article
-                  className={`quest-card ${quest.disabled === true ? 'is-disabled' : ''} ${quest.disabled !== true && quest.isCompleted ? 'is-complete' : ''} ${isSelectedQuestRoleLocked ? 'is-locked' : ''}`}
+                  className={`quest-card ${isQuestUnavailable ? 'is-disabled' : ''} ${!isQuestUnavailable && quest.isCompleted ? 'is-complete' : ''} ${!isQuestUnavailable && !quest.isCompleted && isSelectedQuestRoleLocked ? 'is-locked' : ''}`}
                   key={`${selectedQuestRole}:${quest.id}`}
                 >
                   <div className="quest-card-meta">
@@ -372,7 +377,14 @@ export function QuestsPage({
 
                   <h3 className="quest-card-title">{quest.title}</h3>
                   <p className="quest-card-description">{quest.description}</p>
-                  {quest.disabled !== true && quest.progressHint ? (
+                  {quest.validUntilLabel ? (
+                    <p
+                      className={`quest-card-valid-until ${isQuestExpired ? 'is-expired' : ''}`}
+                    >
+                      {quest.validUntilLabel}
+                    </p>
+                  ) : null}
+                  {!isQuestUnavailable && quest.progressHint ? (
                     <div className="quest-card-progress-shell">
                       <p className="quest-card-progress">
                         {quest.progressHint.remaining} more to complete
@@ -404,9 +416,11 @@ export function QuestsPage({
                     </div>
                   ) : null}
 
-                  {quest.disabled === true ? (
+                  {quest.disabled === true || isQuestExpired ? (
                     <div className="quest-card-coming-soon-shell">
-                      <span className="quest-card-coming-soon-link">Coming soon</span>
+                      <span className="quest-card-coming-soon-link">
+                        {quest.disabled === true ? 'Coming soon' : 'Expired'}
+                      </span>
                     </div>
                   ) : !quest.isCompleted &&
                   (quest.callToAction || shouldShowQuestConnectionCta) ? (

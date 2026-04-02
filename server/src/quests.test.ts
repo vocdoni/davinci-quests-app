@@ -69,6 +69,7 @@ describe('quest catalog helpers', () => {
             description: 'Custom supporter quest',
             id: 1,
             points: 25,
+            validUntil: '2026-04-03T12:00:00.000Z',
             title: 'Custom supporter quest',
           },
         ],
@@ -89,6 +90,7 @@ describe('quest catalog helpers', () => {
           description: 'Custom supporter quest',
           id: 1,
           points: 25,
+          validUntil: '2026-04-03T12:00:00.000Z',
           title: 'Custom supporter quest',
         },
       ],
@@ -257,6 +259,24 @@ describe('quest catalog helpers', () => {
         ],
       }),
     ).toThrow('disabled must be a boolean')
+  })
+
+  it('rejects invalid validUntil datetimes', () => {
+    expect(() =>
+      normalizeQuestCatalog({
+        builders: [],
+        supporters: [
+          {
+            achievement: 'discord.isInTargetServer == true',
+            description: 'Expired quest',
+            id: 1,
+            points: 10,
+            title: 'Expired quest',
+            validUntil: 'not-a-datetime',
+          },
+        ],
+      }),
+    ).toThrow('validUntil must be a valid datetime')
   })
 
   it('falls back to the bundled catalog for the legacy ./src/quests.json path', () => {

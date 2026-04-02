@@ -58,10 +58,10 @@ describe('buildScoreSnapshot', () => {
       builderCompletedQuestIds: [1],
       buildersPoints: 25,
       lastComputedAt: new Date(1_000_000),
-      supporterCompletedCount: 6,
-      supporterCompletedQuestIds: [1, 2, 8, 9, 12, 13],
-      supportersPoints: 390,
-      totalPoints: 415,
+      supporterCompletedCount: 4,
+      supporterCompletedQuestIds: [1, 2, 8, 9],
+      supportersPoints: 190,
+      totalPoints: 215,
     })
   })
 
@@ -399,6 +399,105 @@ describe('buildScoreSnapshot', () => {
     expect(score.supporterCompletedQuestIds).toEqual([1, 3])
     expect(score.supportersPoints).toBe(30)
     expect(score.totalPoints).toBe(30)
+  })
+
+  it('keeps expired quests locked to their previous completion state', () => {
+    const catalog = {
+      builders: [],
+      supporters: [
+        {
+          achievement: 'discord.isInTargetServer == true',
+          description: 'Join the Discord server.',
+          id: 1,
+          points: 20,
+          title: 'Join Discord',
+          validUntil: '2026-04-01T12:00:00.000Z',
+        },
+      ],
+    }
+    const profile = {
+      identities: {
+        discord: {
+          stats: {
+            isInTargetServer: true,
+          },
+        },
+        github: {
+          stats: {
+            isFollowingTargetOrganization: null,
+            isOlderThanOneYear: null,
+            publicNonForkRepositoryCount: null,
+            targetOrganization: null,
+            targetRepositories: [],
+          },
+        },
+        telegram: {
+          stats: {
+            isInTargetChannel: null,
+          },
+        },
+        twitter: {
+          stats: {},
+        },
+      },
+      onchain: {
+        error: null,
+        isConnected: false,
+        numberOfProcesses: 0,
+        totalVotes: '0',
+      },
+      score: {
+        builderCompletedCount: 0,
+        builderCompletedQuestIds: [],
+        buildersPoints: 0,
+        lastComputedAt: null,
+        supporterCompletedCount: 0,
+        supporterCompletedQuestIds: [],
+        supportersPoints: 0,
+        totalPoints: 0,
+      },
+    }
+
+    const expiredScore = buildScoreSnapshotFromLocalState(
+      catalog,
+      profile,
+      undefined,
+      Date.parse('2026-04-02T12:00:00.000Z'),
+    )
+
+    expect(expiredScore.supporterCompletedQuestIds).toEqual([])
+    expect(expiredScore.supportersPoints).toBe(0)
+
+    const preservedScore = buildScoreSnapshotFromLocalState(
+      catalog,
+      {
+        ...profile,
+        score: {
+          builderCompletedCount: 0,
+          builderCompletedQuestIds: [],
+          buildersPoints: 0,
+          lastComputedAt: null,
+          supporterCompletedCount: 1,
+          supporterCompletedQuestIds: [1],
+          supportersPoints: 20,
+          totalPoints: 20,
+        },
+      },
+      {
+        builderCompletedCount: 0,
+        builderCompletedQuestIds: [],
+        buildersPoints: 0,
+        lastComputedAt: null,
+        supporterCompletedCount: 1,
+        supporterCompletedQuestIds: [1],
+        supportersPoints: 20,
+        totalPoints: 20,
+      },
+      Date.parse('2026-04-02T12:00:00.000Z'),
+    )
+
+    expect(preservedScore.supporterCompletedQuestIds).toEqual([1])
+    expect(preservedScore.supportersPoints).toBe(20)
   })
 
   it('keeps the quest-summary quest completed on subsequent score rebuilds', () => {

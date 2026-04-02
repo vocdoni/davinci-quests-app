@@ -22,7 +22,9 @@ export type QuestProgressSummary = Record<
 
 export type ResolvedQuest = QuestDefinition & {
   isCompleted: boolean
+  isExpired: boolean
   progressHint: QuestProgressHint | null
+  validUntilLabel: string | null
 }
 
 export type TwitterProofState = {

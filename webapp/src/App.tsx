@@ -30,6 +30,7 @@ import {
   buildQuestStatsSummary,
   buildQuestAchievementContext,
   getQuestProgressHint,
+  getQuestValidityStatus,
   type QuestRole,
 } from './lib/quests'
 import type { SequencerStats, SequencerVerification } from './hooks/useAppSession'
@@ -211,6 +212,7 @@ function App({ config }: AppProps) {
   const [sequencerError, setSequencerError] = useState<string | null>(null)
   const [sequencerProcessId, setSequencerProcessId] = useState('')
   const [sequencerResult, setSequencerResult] = useState<SequencerVerification | null>(null)
+  const [currentTime, setCurrentTime] = useState(() => Date.now())
   const [providerAction, setProviderAction] = useState<
     OAuthProvider | 'sequencer' | 'twitter' | null
   >(null)
@@ -317,6 +319,16 @@ function App({ config }: AppProps) {
       setTwitterProof(null)
     }
   }, [session.profile?.identities.twitter.connected])
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => {
+      setCurrentTime(Date.now())
+    }, 30_000)
+
+    return () => {
+      window.clearInterval(timerId)
+    }
+  }, [])
 
   const isBuilderRoleUnlocked = Boolean(session.profile?.identities.github.connected)
   const isSelectedQuestRoleLocked =
@@ -590,17 +602,23 @@ function App({ config }: AppProps) {
     builders: new Set(session.profile?.score.builderCompletedQuestIds ?? []),
     supporters: new Set(session.profile?.score.supporterCompletedQuestIds ?? []),
   }
-  const resolvedQuests = activeQuestList.map((quest) => ({
-    ...quest,
-    isCompleted:
-      quest.disabled === true
-        ? false
-        : completedQuestIdsByRole[selectedQuestRole].has(quest.id),
-    progressHint:
-      quest.disabled === true
-        ? null
-        : getQuestProgressHint(quest.achievement, questAchievementContext),
-  }))
+  const resolvedQuests = activeQuestList.map((quest) => {
+    const validityStatus = getQuestValidityStatus(quest.validUntil, currentTime)
+    const isCompleted =
+      quest.disabled === true ? false : completedQuestIdsByRole[selectedQuestRole].has(quest.id)
+    const isExpired = validityStatus.isExpired && !isCompleted
+
+    return {
+      ...quest,
+      isCompleted,
+      isExpired: validityStatus.isExpired,
+      progressHint:
+        quest.disabled === true || isExpired
+          ? null
+          : getQuestProgressHint(quest.achievement, questAchievementContext),
+      validUntilLabel: validityStatus.label,
+    }
+  })
   const totalEarnedQuestPoints =
     questProgressByRole.builders.points + questProgressByRole.supporters.points
   const isGithubConnected = Boolean(session.profile?.identities.github.connected)

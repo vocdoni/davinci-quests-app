@@ -228,7 +228,8 @@
       "title": "Complete Sprint Campaign",
       "description": "Finish every quest in the current sprint to unlock a bonus reward. This is for the people who show up, follow through, and don't leave points on the table.",
       "points": 100,
-      "achievement": "quests.supporters.completed == quests.supporters.total - 1"
+      "achievement": "quests.supporters.completed == quests.supporters.total - 1",
+      "validUntil": "2026-04-30T23:59:59+02:00"
     }
   ]
 }

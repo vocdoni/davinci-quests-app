@@ -42,6 +42,22 @@ function normalizeQuest(role, quest, index) {
     throw new Error(`Quest ${quest.id} in ${role} disabled must be a boolean.`)
   }
 
+  let validUntil = null
+
+  if (quest.validUntil !== undefined) {
+    if (typeof quest.validUntil !== 'string' || quest.validUntil.trim().length === 0) {
+      throw new Error(`Quest ${quest.id} in ${role} validUntil must be a valid datetime.`)
+    }
+
+    const validUntilTimestamp = Date.parse(quest.validUntil.trim())
+
+    if (Number.isNaN(validUntilTimestamp)) {
+      throw new Error(`Quest ${quest.id} in ${role} validUntil must be a valid datetime.`)
+    }
+
+    validUntil = new Date(validUntilTimestamp).toISOString()
+  }
+
   let callToAction = null
   let connectButton = null
 
@@ -151,6 +167,10 @@ function normalizeQuest(role, quest, index) {
 
   if (quest.disabled === true) {
     normalizedQuest.disabled = true
+  }
+
+  if (validUntil) {
+    normalizedQuest.validUntil = validUntil
   }
 
   if (callToAction) {

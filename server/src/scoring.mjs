@@ -431,6 +431,22 @@ function getQuestAchievementRoot(achievement) {
   return getAchievementPathRoot(parsed.path)
 }
 
+function getQuestValidUntilTimestamp(quest) {
+  if (typeof quest?.validUntil !== 'string' || quest.validUntil.trim().length === 0) {
+    return null
+  }
+
+  const timestamp = Date.parse(quest.validUntil)
+
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+function isQuestExpired(quest, now) {
+  const validUntilTimestamp = getQuestValidUntilTimestamp(quest)
+
+  return validUntilTimestamp !== null && now >= validUntilTimestamp
+}
+
 function getPreviousCompletedQuestIds(snapshot, role) {
   const ids =
     role === 'supporters'
@@ -470,6 +486,15 @@ export function buildScoreSnapshotFromLocalState(
   )
 
   const evaluateQuest = (quest, role) => {
+    const previousCompletedQuestIds =
+      role === 'supporters'
+        ? previousSupporterCompletedQuestIds
+        : previousBuilderCompletedQuestIds
+
+    if (isQuestExpired(quest, now)) {
+      return previousCompletedQuestIds.has(quest.id)
+    }
+
     const context = buildQuestAchievementContext(
       profile,
       questCatalog,
@@ -493,9 +518,7 @@ export function buildScoreSnapshotFromLocalState(
       return evaluateQuestAchievement(quest.achievement, context)
     }
 
-    return role === 'supporters'
-      ? previousSupporterCompletedQuestIds.has(quest.id)
-      : previousBuilderCompletedQuestIds.has(quest.id)
+    return previousCompletedQuestIds.has(quest.id)
   }
 
   const supporterCompletedQuestIds = supporterQuests
@@ -578,43 +601,42 @@ export function evaluateQuestAchievement(achievement, context) {
 export function buildScoreSnapshot(questCatalog, profile, now = Date.now()) {
   const supporterQuests = getEnabledQuests(questCatalog?.supporters)
   const builderQuests = getEnabledQuests(questCatalog?.builders)
-  const supporterCompletedQuestIds = supporterQuests
-    .filter((quest) =>
-      evaluateQuestAchievement(
-        quest.achievement,
-        buildQuestAchievementContext(
-          profile,
-          questCatalog,
-          profile?.score ?? null,
-          getQuestAchievementRoot(quest.achievement) === 'quests'
-            ? {
-                id: quest.id,
-                points: quest.points,
-                role: 'supporters',
-              }
-            : null,
-        ),
+  const previousSupporterCompletedQuestIds = getPreviousCompletedQuestIds(
+    profile?.score ?? null,
+    'supporters',
+  )
+  const previousBuilderCompletedQuestIds = getPreviousCompletedQuestIds(
+    profile?.score ?? null,
+    'builders',
+  )
+
+  const evaluateQuest = (quest, role, previousCompletedQuestIds) => {
+    if (isQuestExpired(quest, now)) {
+      return previousCompletedQuestIds.has(quest.id)
+    }
+
+    return evaluateQuestAchievement(
+      quest.achievement,
+      buildQuestAchievementContext(
+        profile,
+        questCatalog,
+        profile?.score ?? null,
+        getQuestAchievementRoot(quest.achievement) === 'quests'
+          ? {
+              id: quest.id,
+              points: quest.points,
+              role,
+            }
+          : null,
       ),
     )
+  }
+
+  const supporterCompletedQuestIds = supporterQuests
+    .filter((quest) => evaluateQuest(quest, 'supporters', previousSupporterCompletedQuestIds))
     .map((quest) => quest.id)
   const builderCompletedQuestIds = builderQuests
-    .filter((quest) =>
-      evaluateQuestAchievement(
-        quest.achievement,
-        buildQuestAchievementContext(
-          profile,
-          questCatalog,
-          profile?.score ?? null,
-          getQuestAchievementRoot(quest.achievement) === 'quests'
-            ? {
-                id: quest.id,
-                points: quest.points,
-                role: 'builders',
-              }
-            : null,
-        ),
-      ),
-    )
+    .filter((quest) => evaluateQuest(quest, 'builders', previousBuilderCompletedQuestIds))
     .map((quest) => quest.id)
   const supportersPoints = supporterQuests.reduce(
     (total, quest) => total + (supporterCompletedQuestIds.includes(quest.id) ? quest.points : 0),

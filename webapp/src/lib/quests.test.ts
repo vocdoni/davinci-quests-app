@@ -5,6 +5,7 @@ import {
   evaluateQuestAchievement,
   getQuestProgressHint,
   getQuestRequirementSource,
+  getQuestValidityStatus,
 } from './quests'
 
 describe('quest achievement helpers', () => {
@@ -273,6 +274,22 @@ describe('quest achievement helpers', () => {
       required: 15,
     })
     expect(getQuestProgressHint('discord.isInTargetServer == true', context)).toBeNull()
+  })
+
+  it('formats quest validity relative to the current time', () => {
+    expect(
+      getQuestValidityStatus('2026-04-05T12:00:00.000Z', Date.parse('2026-04-02T12:00:00.000Z')),
+    ).toEqual({
+      isExpired: false,
+      label: 'Expires in 3 days',
+    })
+
+    expect(
+      getQuestValidityStatus('2026-03-31T12:00:00.000Z', Date.parse('2026-04-02T12:00:00.000Z')),
+    ).toEqual({
+      isExpired: true,
+      label: 'Expired 2 days ago',
+    })
   })
 
   it('infers the quest source from the achievement expression', () => {
