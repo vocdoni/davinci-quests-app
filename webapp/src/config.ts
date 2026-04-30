@@ -14,6 +14,7 @@ export type TargetChainConfig = {
 
 export type AppConfig = {
   apiBaseUrl: string
+  questsClosed: boolean
   targetChain: TargetChainConfig
   walletConnectProjectId: string
 }
@@ -44,6 +45,15 @@ function parseUrl(name: string, rawValue: string) {
   } catch {
     throw new Error(`${name} must be a valid URL.`)
   }
+}
+
+function parseBoolean(rawValue: string | undefined) {
+  if (!rawValue) {
+    return false
+  }
+
+  const normalizedValue = rawValue.trim().toLowerCase()
+  return normalizedValue === 'true'
 }
 
 export function parseAppConfig(env: EnvSource): AppConfig {
@@ -82,6 +92,7 @@ export function parseAppConfig(env: EnvSource): AppConfig {
 
   return {
     apiBaseUrl,
+    questsClosed: parseBoolean(env.VITE_QUESTS_CLOSED),
     targetChain: {
       blockExplorerUrl,
       id: chainId,

@@ -40,6 +40,7 @@ type QuestsState = ReturnType<typeof useQuests>
 
 const baseConfig: AppConfig = {
   apiBaseUrl: 'https://api.example.org',
+  questsClosed: true,
   targetChain: {
     blockExplorerUrl: 'https://explorer.example.org',
     id: 137,
@@ -52,6 +53,11 @@ const baseConfig: AppConfig = {
     rpcUrl: 'https://rpc.example.org',
   },
   walletConnectProjectId: 'project-id',
+}
+
+const openConfig: AppConfig = {
+  ...baseConfig,
+  questsClosed: false,
 }
 
 function createWalletConnection(
@@ -434,7 +440,7 @@ beforeEach(() => {
   mockedUseQuests.mockReset()
   mockedUseLeaderboard.mockReturnValue(createLeaderboardState())
   mockedUseQuests.mockReturnValue(createQuestsState())
-  window.history.replaceState(null, '', '/')
+  window.history.replaceState(null, '', '/quests')
   vi.spyOn(console, 'log').mockImplementation(() => {})
 })
 
@@ -554,7 +560,11 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', { name: 'Join the Vocdoni Discord server' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Connect Discord' })).toBeInTheDocument()
+    expect(
+      screen.getByText('Thanks to everyone who joined the DAVINCI quests.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Closed', { selector: '.quest-status-badge' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect Discord' })).not.toBeInTheDocument()
   })
 
   it('shows the trimmed address in the navbar and routes to the profile page on click', async () => {
@@ -615,9 +625,55 @@ describe('App', () => {
     vi.useRealTimers()
   })
 
-  it('uses quests as the root page and shows supporter quests by default', async () => {
-    const user = userEvent.setup()
+  it('uses the leaderboard as the root page', () => {
+    window.history.replaceState(null, '', '/')
 
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(createSession())
+
+    render(<App config={baseConfig} />)
+
+    expect(
+      screen.getByRole('heading', { name: 'See who is leading the quests.' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Quests' })).toHaveAttribute('href', '/quests')
+    expect(screen.getByRole('link', { name: 'Leaderboard' })).toHaveAttribute('href', '/')
+  })
+
+  it('restores the original quests landing page when questsClosed is false', () => {
+    window.history.replaceState(null, '', '/')
+
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(createSession())
+
+    render(<App config={openConfig} />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Shape the future of onchain decisions.' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Quests' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'Leaderboard' })).toHaveAttribute(
+      'href',
+      '/leaderboard',
+    )
+    expect(
+      screen.queryByText('Thanks to everyone who joined the DAVINCI quests.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows supporter quests by default when users open the quests page', () => {
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({
         address: '0x123400000000000000000000000000000000abcd',
@@ -647,34 +703,49 @@ describe('App', () => {
       screen.getByRole('heading', { name: 'Join the Vocdoni Discord server' }),
     ).toBeInTheDocument()
     expect(screen.getByText('Click change to this track')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Join Discord/ })).not.toBeDisabled()
     expect(
-      screen.getByText('Open the Discord invite if you still need to join.'),
+      screen.getByText('Thanks to everyone who joined the DAVINCI quests.'),
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('0 quests archived').length).toBeGreaterThan(0)
+    expect(screen.getByText('Closed', { selector: '.quest-status-badge' })).toBeInTheDocument()
+    expect(
+      screen.getByText('Thanks for taking part in the DAVINCI quest run.'),
     ).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'About' })).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Quests' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'Quests' })).toHaveAttribute('href', '/quests')
     expect(screen.getByRole('link', { name: 'Leaderboard' })).toHaveAttribute(
       'href',
-      '/leaderboard',
+      '/',
     )
     expect(screen.getByRole('link', { name: 'Rules' })).toHaveAttribute('href', '/rules')
     expect(screen.getByRole('link', { name: 'FAQ' })).toHaveAttribute('href', '/faq')
     expect(
-      screen.getByRole('button', { name: 'Connect Discord' }),
-    ).toBeInTheDocument()
-    expect(
       screen.queryByRole('button', { name: 'Connect GitHub' }),
     ).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Connect Discord' }))
-
-    expect(screen.getByRole('heading', { name: 'My profile' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect Discord' })).not.toBeInTheDocument()
   })
 
-  it('shows the custom connect button until the quest is completed', async () => {
-    const user = userEvent.setup()
+  it('restores quest CTAs when questsClosed is false', () => {
+    mockedUseWalletConnection.mockReturnValue(
+      createWalletConnection({
+        address: '0x123400000000000000000000000000000000abcd',
+        connectors: [],
+        isConnected: true,
+      }),
+    )
+    mockedUseAppSession.mockReturnValue(createSession())
 
+    render(<App config={openConfig} />)
+
+    expect(screen.getByRole('button', { name: /Join Discord/ })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Connect Discord' })).toBeInTheDocument()
+    expect(
+      screen.queryByText('Quest campaign closed'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides quest-specific actions once the campaign is closed', () => {
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({
         address: '0x123400000000000000000000000000000000abcd',
@@ -734,23 +805,15 @@ describe('App', () => {
 
     render(<App config={baseConfig} />)
 
-    expect(screen.getByRole('button', { name: 'Open profile' })).toBeInTheDocument()
-    expect(screen.getByText('1 more to complete')).toBeInTheDocument()
-    expect(screen.getByText('1 required')).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Connect Discord' }),
-    ).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Open profile' }))
-
-    expect(
-      screen.getByRole('heading', { name: 'Verify a process against your wallet.' }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Join the Vocdoni Discord server' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open profile' })).not.toBeInTheDocument()
+    expect(screen.queryByText('1 more to complete')).not.toBeInTheDocument()
+    expect(screen.queryByText('1 required')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect Discord' })).not.toBeInTheDocument()
+    expect(screen.getByText('Quest campaign closed')).toBeInTheDocument()
   })
 
-  it('routes sequencer quests to the hidden verifier page when the source is not connected', async () => {
-    const user = userEvent.setup()
-
+  it('removes sequencer quest shortcuts once the campaign is closed', () => {
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({
         address: '0x123400000000000000000000000000000000abcd',
@@ -801,14 +864,9 @@ describe('App', () => {
 
     render(<App config={baseConfig} />)
 
-    expect(screen.getByRole('button', { name: 'Verify process' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Verify process' }))
-
-    expect(
-      screen.getByRole('heading', { name: 'Verify a process against your wallet.' }),
-    ).toBeInTheDocument()
-    expect(window.location.pathname).toBe('/profile/sequencer')
+    expect(screen.getByRole('heading', { name: 'Verify a sequencer process' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Verify process' })).not.toBeInTheDocument()
+    expect(screen.getByText('Quest campaign closed')).toBeInTheDocument()
   })
 
   it('accepts a process link and extracts the process id before verification', async () => {
@@ -891,7 +949,7 @@ describe('App', () => {
     ).toBeInTheDocument()
   })
 
-  it('keeps the connect button visible until the quest is completed', () => {
+  it('removes the connect button when quests are closed', () => {
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({
         address: '0x123400000000000000000000000000000000abcd',
@@ -923,11 +981,12 @@ describe('App', () => {
 
     render(<App config={baseConfig} />)
 
-    expect(screen.getByRole('button', { name: /Join Discord/ })).not.toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Connect Discord' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Join Discord/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect Discord' })).not.toBeInTheDocument()
+    expect(screen.getByText('Quest campaign closed')).toBeInTheDocument()
   })
 
-  it('keeps the main quest CTA enabled even when its source is not connected', () => {
+  it('removes main quest CTAs when quests are closed', () => {
     mockedUseWalletConnection.mockReturnValue(
       createWalletConnection({
         address: '0x123400000000000000000000000000000000abcd',
@@ -979,7 +1038,8 @@ describe('App', () => {
 
     render(<App config={baseConfig} />)
 
-    expect(screen.getByRole('button', { name: 'Verify vote' })).not.toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Verify vote' })).not.toBeInTheDocument()
+    expect(screen.getByText('Quest campaign closed')).toBeInTheDocument()
   })
 
   it('hides the quest call to action once the quest is completed', async () => {
@@ -1091,7 +1151,8 @@ describe('App', () => {
     render(<App config={baseConfig} />)
 
     expect(screen.getByRole('heading', { name: 'Disabled supporter quest' })).toBeInTheDocument()
-    expect(screen.getAllByText('Coming soon').length).toBeGreaterThan(0)
+    expect(screen.getByText('Closed', { selector: '.quest-status-badge' })).toBeInTheDocument()
+    expect(screen.getByText('Quest campaign closed')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Join Discord' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Connect Discord' })).not.toBeInTheDocument()
     expect(screen.queryByText('1 required')).not.toBeInTheDocument()
@@ -1197,7 +1258,8 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', { name: 'Star the Davinci Node repo on GitHub' }),
     ).toBeInTheDocument()
-    expect(screen.getAllByText('Locked').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Closed', { selector: '.quest-status-badge' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Quest campaign closed').length).toBeGreaterThan(0)
     expect(
       screen.getByText('Connect your GitHub account from your profile to unlock progress tracking.'),
     ).toBeInTheDocument()

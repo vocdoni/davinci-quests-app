@@ -22,6 +22,7 @@ describe('parseAppConfig', () => {
 
     expect(config).toEqual({
       apiBaseUrl: 'https://api.example.org',
+      questsClosed: false,
       targetChain: {
         blockExplorerUrl: 'https://explorer.example.org',
         id: 137,
@@ -35,6 +36,17 @@ describe('parseAppConfig', () => {
       },
       walletConnectProjectId: 'project-id-123',
     })
+  })
+
+  it('parses VITE_QUESTS_CLOSED when enabled', () => {
+    const config = parseAppConfig(createEnv({ VITE_QUESTS_CLOSED: 'true' }))
+
+    expect(config.questsClosed).toBe(true)
+  })
+
+  it('treats VITE_QUESTS_CLOSED as false when omitted or false', () => {
+    expect(parseAppConfig(createEnv()).questsClosed).toBe(false)
+    expect(parseAppConfig(createEnv({ VITE_QUESTS_CLOSED: 'false' })).questsClosed).toBe(false)
   })
 
   it('throws when the API base URL is invalid', () => {

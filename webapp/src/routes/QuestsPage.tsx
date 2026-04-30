@@ -6,6 +6,7 @@ import {
   Lock,
   ArrowRight,
   Trophy,
+  Trophy as TrophyIcon,
 } from 'iconoir-react'
 import * as Iconoir from 'iconoir-react'
 import type { ComponentType, SVGProps } from 'react'
@@ -23,6 +24,7 @@ const ICONOIR_COMPONENTS = Iconoir as unknown as Record<string, QuestIconCompone
 type QuestsPageProps = {
   isBuilderRoleUnlocked: boolean
   isGithubConnected: boolean
+  isQuestProgramClosed: boolean
   isSelectedQuestRoleLocked: boolean
   questCounts: Record<QuestRole, number>
   questErrorMessage: string
@@ -58,16 +60,22 @@ function getQuestCountLabel(count: number) {
   return `${count} quest${count === 1 ? '' : 's'} available`
 }
 
+function getClosedQuestCountLabel(count: number) {
+  return `${count} quest${count === 1 ? '' : 's'} archived`
+}
+
 function getQuestStatusBadge({
   isDisabled,
   isCompleted,
   isExpired,
   isLocked,
+  isQuestProgramClosed,
 }: {
   isDisabled: boolean
   isCompleted: boolean
   isExpired: boolean
   isLocked: boolean
+  isQuestProgramClosed: boolean
 }) {
   if (isCompleted) {
     return {
@@ -80,7 +88,7 @@ function getQuestStatusBadge({
   if (isDisabled || isExpired) {
     return {
       icon: Hourglass,
-      label: isExpired ? 'Expired' : 'Coming soon',
+      label: isExpired ? 'Expired' : isQuestProgramClosed ? 'Closed' : 'Coming soon',
       statusClassName: 'is-disabled',
     }
   }
@@ -134,6 +142,7 @@ function resolveQuestIcon(
 export function QuestsPage({
   isBuilderRoleUnlocked,
   isGithubConnected,
+  isQuestProgramClosed,
   isSelectedQuestRoleLocked,
   questCounts,
   questErrorMessage,
@@ -168,7 +177,9 @@ export function QuestsPage({
             const isSelected = selectedQuestRole === role
             const questCountLabel = questLoadingMessage
               ? 'Loading quests...'
-              : getQuestCountLabel(questCounts[role])
+              : isQuestProgramClosed
+                ? getClosedQuestCountLabel(questCounts[role])
+                : getQuestCountLabel(questCounts[role])
 
             return (
               <article
@@ -305,7 +316,11 @@ export function QuestsPage({
           <div className="quest-summary-copy">
             <p className="section-eyebrow">Roadmap</p>
             <h2 className="panel-title">{QUEST_ROLE_LABELS[selectedQuestRole]} quests</h2>
-            <p className="body-copy">{getQuestRoleSummary(selectedQuestRole)}</p>
+            <p className="body-copy">
+              {isQuestProgramClosed
+                ? 'The quest campaign has now ended. Your completed work and earned points are still visible here, and the leaderboard remains open for the final standings.'
+                : getQuestRoleSummary(selectedQuestRole)}
+            </p>
             {isSelectedQuestRoleLocked ? (
               <div className="quest-role-lockout quest-role-lockout-inline">
                 <span>
@@ -319,6 +334,17 @@ export function QuestsPage({
                 >
                   Go to profile
                 </button>
+              </div>
+            ) : null}
+            {isQuestProgramClosed ? (
+              <div className="quest-program-closed-note">
+                <span className="quest-program-closed-badge">
+                  <TrophyIcon aria-hidden={true} className="quest-program-closed-icon" />
+                  Quests closed
+                </span>
+                <p className="quest-program-closed-copy">
+                  Thanks for taking part in the DAVINCI quest run.
+                </p>
               </div>
             ) : null}
           </div>
@@ -336,12 +362,14 @@ export function QuestsPage({
           <div className="quest-list">
             {resolvedQuests.map((quest) => {
               const isQuestExpired = quest.isExpired && !quest.isCompleted
-              const isQuestUnavailable = quest.disabled === true || isQuestExpired
+              const isQuestDisabled = quest.disabled === true && !quest.isCompleted
+              const isQuestUnavailable = isQuestDisabled || isQuestExpired
               const statusBadge = getQuestStatusBadge({
-                isDisabled: quest.disabled === true,
+                isDisabled: isQuestDisabled,
                 isCompleted: quest.isCompleted,
                 isExpired: isQuestExpired,
                 isLocked: isSelectedQuestRoleLocked,
+                isQuestProgramClosed,
               })
               const shouldShowQuestConnectionCta =
                 !isQuestUnavailable &&
@@ -416,10 +444,14 @@ export function QuestsPage({
                     </div>
                   ) : null}
 
-                  {quest.disabled === true || isQuestExpired ? (
+                  {isQuestUnavailable ? (
                     <div className="quest-card-coming-soon-shell">
                       <span className="quest-card-coming-soon-link">
-                        {quest.disabled === true ? 'Coming soon' : 'Expired'}
+                        {isQuestDisabled
+                          ? isQuestProgramClosed
+                            ? 'Quest campaign closed'
+                            : 'Coming soon'
+                          : 'Expired'}
                       </span>
                     </div>
                   ) : !quest.isCompleted &&

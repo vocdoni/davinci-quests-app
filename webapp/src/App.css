@@ -188,16 +188,85 @@
   padding: 16px 20px;
 }
 
+.notice-banner-mark {
+  align-items: center;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 248, 238, 0.92), rgba(214, 195, 168, 0.45)),
+    rgba(255, 248, 238, 0.78);
+  border: 1px solid rgba(59, 43, 33, 0.12);
+  border-radius: 24px;
+  display: inline-flex;
+  flex-shrink: 0;
+  height: 76px;
+  justify-content: center;
+  width: 76px;
+}
+
+.notice-banner-mark-icon {
+  color: var(--color-accent);
+  height: 34px;
+  width: 34px;
+}
+
+.notice-banner-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.notice-banner-kicker {
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.notice-banner-copy strong {
+  color: var(--color-accent);
+  font-family: 'Averia Libre', serif;
+  font-size: clamp(28px, 4.4vw, 44px);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.notice-banner-copy span {
+  color: var(--color-muted);
+  font-size: clamp(15px, 1.7vw, 18px);
+  line-height: 1.65;
+  max-width: 60ch;
+}
+
 .notice-banner.status-error {
   background: rgba(255, 240, 231, 0.92);
   border-color: rgba(155, 79, 59, 0.22);
   color: var(--color-danger);
 }
 
+.notice-banner.status-celebration {
+  background:
+    linear-gradient(135deg, rgba(255, 248, 238, 0.99), rgba(214, 195, 168, 0.58)),
+    rgba(255, 248, 238, 0.96);
+  border-color: rgba(214, 195, 168, 0.98);
+  box-shadow:
+    0 20px 40px rgba(59, 43, 33, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  gap: 20px;
+  padding: 24px 28px;
+}
+
 .notice-banner.status-note {
   background: rgba(217, 250, 255, 0.58);
   border-color: rgba(193, 223, 205, 0.92);
   color: var(--color-ok);
+}
+
+.notice-banner-button {
+  flex-shrink: 0;
+  font-size: 16px;
+  font-weight: 700;
+  min-height: 52px;
+  padding: 12px 20px;
 }
 
 .content-panel {
@@ -717,6 +786,38 @@
   padding: 0;
   text-decoration: underline;
   text-underline-offset: 0.14em;
+}
+
+.quest-program-closed-note {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.quest-program-closed-badge {
+  align-items: center;
+  background: rgba(214, 195, 168, 0.54);
+  border: 1px solid rgba(59, 43, 33, 0.08);
+  border-radius: 999px;
+  color: var(--color-accent);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 8px;
+  min-height: 34px;
+  padding: 8px 12px;
+  width: fit-content;
+}
+
+.quest-program-closed-icon {
+  height: 15px;
+  width: 15px;
+}
+
+.quest-program-closed-copy {
+  color: var(--color-muted);
+  line-height: 1.7;
+  margin: 0;
 }
 
 .quest-role-card-footer {
@@ -1967,6 +2068,20 @@
   .notice-banner {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .notice-banner-mark {
+    height: 68px;
+    width: 68px;
+  }
+
+  .notice-banner-mark-icon {
+    height: 30px;
+    width: 30px;
+  }
+
+  .notice-banner-button {
+    width: 100%;
   }
 }
 

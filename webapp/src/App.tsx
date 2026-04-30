@@ -11,6 +11,7 @@ import {
   ChatBubbleQuestion,
   Leaderboard,
   Puzzle,
+  Trophy,
 } from 'iconoir-react'
 import { getAddress, type Address } from 'viem'
 import davinciLogo from './assets/davinci-logo.png'
@@ -99,20 +100,28 @@ function normalizePathname(pathname: string) {
   return normalized === '' ? '/' : normalized
 }
 
-function getPathForPage(page: AppPage) {
+function getPathForPage(page: AppPage, questsClosed: boolean) {
   if (page === 'sequencer') {
     return '/profile/sequencer'
   }
 
   if (page === 'quests') {
-    return '/'
+    return questsClosed ? '/quests' : '/'
+  }
+
+  if (page === 'leaderboard') {
+    return questsClosed ? '/' : '/leaderboard'
   }
 
   return `/${page}`
 }
 
-function getPageFromPathname(pathname: string): AppPage {
+function getPageFromPathname(pathname: string, questsClosed: boolean): AppPage {
   const normalizedPath = normalizePathname(pathname)
+
+  if (normalizedPath === '/') {
+    return questsClosed ? 'leaderboard' : 'quests'
+  }
 
   if (normalizedPath === '/faq') {
     return 'faq'
@@ -134,7 +143,11 @@ function getPageFromPathname(pathname: string): AppPage {
     return 'rules'
   }
 
-  return 'quests'
+  if (normalizedPath === '/quests') {
+    return 'quests'
+  }
+
+  return questsClosed ? 'leaderboard' : 'quests'
 }
 
 function trimAddress(address?: string | null) {
@@ -183,6 +196,7 @@ function normalizeSequencerProcessIdInput(value: string) {
 }
 
 function App({ config }: AppProps) {
+  const { questsClosed } = config
   const wallet = useWalletConnection(config)
   const session = useAppSession({
     apiBaseUrl: config.apiBaseUrl,
@@ -200,7 +214,11 @@ function App({ config }: AppProps) {
   const signInWithWalletRef = useRef<() => Promise<void>>(async () => undefined)
   const [authError, setAuthError] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState<AppPage>(() =>
-    typeof window === 'undefined' ? 'quests' : getPageFromPathname(window.location.pathname),
+    typeof window === 'undefined'
+      ? questsClosed
+        ? 'leaderboard'
+        : 'quests'
+      : getPageFromPathname(window.location.pathname, questsClosed),
   )
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
   const [selectedQuestRole, setSelectedQuestRole] = useState<QuestRole>('supporters')
@@ -248,7 +266,7 @@ function App({ config }: AppProps) {
     }
 
     const handlePopState = () => {
-      setCurrentPage(getPageFromPathname(window.location.pathname))
+      setCurrentPage(getPageFromPathname(window.location.pathname, questsClosed))
     }
 
     window.addEventListener('popstate', handlePopState)
@@ -256,7 +274,7 @@ function App({ config }: AppProps) {
     return () => {
       window.removeEventListener('popstate', handlePopState)
     }
-  }, [])
+  }, [questsClosed])
 
   useEffect(() => {
     if (!wallet.isConnected || !wallet.isWrongNetwork || wallet.isSwitching) {
@@ -364,13 +382,13 @@ function App({ config }: AppProps) {
       return
     }
 
-    const nextPath = getPathForPage('profile')
+    const nextPath = getPathForPage('profile', questsClosed)
     if (window.location.pathname !== nextPath) {
       window.history.pushState(null, document.title, nextPath)
     }
 
     setCurrentPage('profile')
-  }, [linkFeedback])
+  }, [linkFeedback, questsClosed])
 
   useEffect(() => {
     setIsMobileNavOpen(false)
@@ -397,7 +415,7 @@ function App({ config }: AppProps) {
 
     setIsMobileNavOpen(false)
 
-    const nextPath = getPathForPage(page)
+    const nextPath = getPathForPage(page, questsClosed)
 
     if (window.location.pathname !== nextPath) {
       window.history.pushState(null, document.title, nextPath)
@@ -610,10 +628,11 @@ function App({ config }: AppProps) {
 
     return {
       ...quest,
+      disabled: quest.disabled === true || questsClosed,
       isCompleted,
       isExpired: validityStatus.isExpired,
       progressHint:
-        quest.disabled === true || isExpired
+        quest.disabled === true || questsClosed || isExpired
           ? null
           : getQuestProgressHint(quest.achievement, questAchievementContext),
       validUntilLabel: validityStatus.label,
@@ -715,6 +734,7 @@ function App({ config }: AppProps) {
       <QuestsPage
         isBuilderRoleUnlocked={isBuilderRoleUnlocked}
         isGithubConnected={isGithubConnected}
+        isQuestProgramClosed={questsClosed}
         isSelectedQuestRoleLocked={isSelectedQuestRoleLocked}
         questCounts={questCounts}
         questErrorMessage={questErrorMessage}
@@ -733,8 +753,8 @@ function App({ config }: AppProps) {
           }
 
           const normalizedPath = path === '/' ? '/' : path.replace(/\/+$/, '')
-          const nextPage = getPageFromPathname(normalizedPath)
-          const nextPath = getPathForPage(nextPage)
+          const nextPage = getPageFromPathname(normalizedPath, questsClosed)
+          const nextPath = getPathForPage(nextPage, questsClosed)
 
           if (window.location.pathname !== nextPath) {
             window.history.pushState(null, document.title, nextPath)
@@ -818,8 +838,8 @@ function App({ config }: AppProps) {
       <header className={`navbar-shell ${isMobileNavOpen ? 'is-mobile-open' : ''}`}>
         <a
           className="brand-link"
-          href="/"
-          onClick={handleNavigationClick('quests')}
+          href={getPathForPage(questsClosed ? 'leaderboard' : 'quests', questsClosed)}
+          onClick={handleNavigationClick(questsClosed ? 'leaderboard' : 'quests')}
         >
           <img
             alt="DaVinci logo"
@@ -861,7 +881,7 @@ function App({ config }: AppProps) {
               <a
                 aria-current={currentPage === item.page ? 'page' : undefined}
                 className={`nav-link ${currentPage === item.page ? 'is-active' : ''}`}
-                href={getPathForPage(item.page)}
+                href={getPathForPage(item.page, questsClosed)}
                 key={item.page}
                 onClick={handleNavigationClick(item.page)}
               >
@@ -919,6 +939,30 @@ function App({ config }: AppProps) {
       </header>
 
       <div className="page-shell">
+        {questsClosed ? (
+          <section className="notice-banner status-celebration">
+            <div className="notice-banner-mark" aria-hidden="true">
+              <Trophy className="notice-banner-mark-icon" />
+            </div>
+            <div className="notice-banner-copy">
+              <p className="notice-banner-kicker">Quest Campaign Complete</p>
+              <strong>Thanks to everyone who joined the DAVINCI quests.</strong>
+              <span>
+                The campaign is now closed, but the final standings are still live.
+                Check the leaderboard to see where everyone finished.
+              </span>
+            </div>
+            <button
+              className="minimal-button notice-banner-button"
+              onClick={() => {
+                navigateToPage('leaderboard')
+              }}
+              type="button"
+            >
+              View leaderboard
+            </button>
+          </section>
+        ) : null}
         {wallet.isWrongNetwork ? (
           <section className="notice-banner status-error">
             Wrong network connected. Switching to {wallet.targetChain.name}...
